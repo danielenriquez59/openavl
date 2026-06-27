@@ -1,0 +1,17 @@
+{
+  "nvmax": 56,
+  "nstrmax": 56,
+  "nsurfmax": 5,
+  "ncontrol": 3,
+  "nbody": 0,
+  "nlnode": 0,
+  "nlmax": 1,
+  "mach": 0.0,
+  "sref": 12.0,
+  "cref": 1.0,
+  "bref": 15.0,
+  "default_alpha_deg": 2.0,
+  "default_cl": 0.6,
+  "icon_alpha": 5,
+  "conval_cl": 0.6
+}

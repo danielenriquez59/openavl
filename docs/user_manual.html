@@ -1,0 +1,1724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenAVL User Manual</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #222534;
+      --border: #2e3150;
+      --accent: #5b8dee;
+      --accent2: #7c6af5;
+      --text: #d4d8f0;
+      --text-dim: #7a80a0;
+      --code-bg: #12141e;
+      --green: #4caf81;
+      --yellow: #e8b84b;
+      --red: #e05c5c;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    /* Layout */
+    .layout { display: flex; min-height: 100vh; }
+
+    nav {
+      position: fixed;
+      top: 0; left: 0;
+      width: 260px;
+      height: 100vh;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 24px 0 40px;
+    }
+
+    nav .logo {
+      padding: 0 24px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    nav .logo h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    nav .logo p {
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    nav ul { list-style: none; }
+
+    nav ul li a {
+      display: block;
+      padding: 6px 24px;
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      text-decoration: none;
+      transition: color 0.15s, background 0.15s;
+    }
+
+    nav ul li a:hover {
+      color: var(--text);
+      background: var(--surface2);
+    }
+
+    nav ul li.section-header {
+      padding: 16px 24px 4px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-dim);
+    }
+
+    main {
+      margin-left: 260px;
+      padding: 48px 64px;
+      max-width: 1000px;
+    }
+
+    /* Typography */
+    h1, h2, h3, h4 { font-weight: 700; letter-spacing: -0.02em; }
+
+    h1 { font-size: 2.5rem; color: #fff; margin-bottom: 12px; }
+
+    h2 {
+      font-size: 1.6rem;
+      color: #fff;
+      margin: 56px 0 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h3 {
+      font-size: 1.15rem;
+      color: var(--accent);
+      margin: 32px 0 10px;
+    }
+
+    h4 {
+      font-size: 0.95rem;
+      color: var(--text);
+      margin: 20px 0 6px;
+    }
+
+    p { margin-bottom: 14px; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, var(--surface) 0%, var(--surface2) 100%);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px 48px;
+      margin-bottom: 40px;
+    }
+
+    .hero .subtitle {
+      font-size: 1.1rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+      max-width: 620px;
+    }
+
+    .badge-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 20px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid;
+    }
+
+    .badge-blue { color: var(--accent); border-color: var(--accent); }
+    .badge-green { color: var(--green); border-color: var(--green); }
+    .badge-purple { color: var(--accent2); border-color: var(--accent2); }
+
+    /* Code blocks */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px 24px;
+      overflow-x: auto;
+      margin: 16px 0 24px;
+      font-size: 0.875rem;
+      line-height: 1.6;
+    }
+
+    code {
+      font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+      font-size: 0.875em;
+    }
+
+    p code, li code, td code {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      color: var(--accent);
+    }
+
+    /* Syntax highlight colors */
+    .kw { color: #c792ea; }
+    .fn { color: #82aaff; }
+    .st { color: #c3e88d; }
+    .cm { color: #546e7a; font-style: italic; }
+    .nm { color: #f78c6c; }
+    .op { color: #89ddff; }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 28px;
+      font-size: 0.875rem;
+    }
+
+    thead th {
+      background: var(--surface2);
+      color: var(--text);
+      font-weight: 600;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 2px solid var(--border);
+    }
+
+    tbody td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tbody tr:hover { background: rgba(91, 141, 238, 0.05); }
+
+    /* Callouts */
+    .callout {
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 20px 0;
+      border-left: 3px solid;
+      font-size: 0.9rem;
+    }
+
+    .callout-info { background: rgba(91, 141, 238, 0.1); border-color: var(--accent); }
+    .callout-warn { background: rgba(232, 184, 75, 0.1); border-color: var(--yellow); }
+    .callout-tip  { background: rgba(76, 175, 129, 0.1); border-color: var(--green); }
+
+    .callout strong { display: block; margin-bottom: 4px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    .callout-info strong { color: var(--accent); }
+    .callout-warn strong { color: var(--yellow); }
+    .callout-tip  strong { color: var(--green); }
+
+    /* Lists */
+    ul, ol { padding-left: 24px; margin-bottom: 14px; }
+    li { margin-bottom: 6px; }
+
+    /* Method signatures */
+    .method-sig {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent2);
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 20px 0 10px;
+      font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+      font-size: 0.875rem;
+    }
+
+    .method-sig .ret { color: var(--text-dim); }
+    .method-sig .name { color: var(--accent); font-weight: 700; }
+    .method-sig .param { color: var(--yellow); }
+    .method-sig .type { color: var(--text-dim); }
+
+    /* Result card */
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin: 16px 0;
+    }
+
+    .result-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .result-card .key { font-family: monospace; color: var(--accent); font-size: 0.9rem; font-weight: 700; }
+    .result-card .desc { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+
+    /* Divider */
+    hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+    /* Section anchor offset */
+    section { scroll-margin-top: 24px; }
+
+    /* Responsive */
+    @media (max-width: 900px) {
+      nav { display: none; }
+      main { margin-left: 0; padding: 24px 20px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- Sidebar Navigation -->
+  <nav>
+    <div class="logo">
+      <h1>OpenAVL</h1>
+      <p>User Manual</p>
+    </div>
+    <ul>
+      <li class="section-header">Getting Started</li>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#installation">Installation</a></li>
+      <li><a href="#web-installation">Web GUI (optional)</a></li>
+      <li><a href="#jax-installation">JAX (optional)</a></li>
+      <li><a href="#quickstart">Quick Start</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#visualization">Visualization</a></li>
+
+      <li class="section-header">Core API</li>
+      <li><a href="#avlsolver">AVLSolver</a></li>
+      <li><a href="#variables">Variables</a></li>
+      <li><a href="#parameters">Parameters</a></li>
+      <li><a href="#constraints">Constraints</a></li>
+      <li><a href="#results">Results</a></li>
+      <li><a href="#analysis">Stability &amp; Dynamics</a></li>
+
+      <li class="section-header">Geometry API</li>
+      <li><a href="#geometry-api">Building Aircraft</a></li>
+      <li><a href="#cdcl-polar">CD(CL) Polars</a></li>
+      <li><a href="#clmax-capping">Sectional CLmax</a></li>
+
+      <li class="section-header">File Formats</li>
+      <li><a href="#avl-format">AVL Geometry Format</a></li>
+      <li><a href="#mass-format">Mass File Format</a></li>
+
+      <li class="section-header">Reference</li>
+      <li><a href="#parser">Parser API</a></li>
+      <li><a href="#avlstate">AVLState</a></li>
+      <li><a href="#modules">Module Reference</a></li>
+      <li><a href="#testing">Running Tests</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main Content -->
+  <main>
+
+    <!-- Hero -->
+    <div class="hero">
+      <h1>OpenAVL</h1>
+      <p class="subtitle">
+        A numerically faithful Python port of AVL (Athena Vortex Lattice) &mdash; the classical
+        vortex-lattice aerodynamic analysis code by Mark Drela and Harold Youngren (MIT).
+      </p>
+      <div class="badge-row">
+        <span class="badge badge-blue">Python 3.10+</span>
+        <span class="badge badge-green">NumPy / SciPy</span>
+        <span class="badge badge-purple">JAX-ready</span>
+        <span class="badge badge-blue">GPL v2+</span>
+      </div>
+    </div>
+
+    <!-- ─── OVERVIEW ─────────────────────────────────────── -->
+    <section id="overview">
+      <h2>Overview</h2>
+
+      <p>
+        OpenAVL is a pure Python reimplementation of the Fortran AVL solver. It provides the same
+        vortex-lattice aerodynamics computations as the original code while exposing a clean,
+        object-oriented API suitable for scripting, optimization loops, and future automatic
+        differentiation via JAX.
+      </p>
+
+      <h3>What OpenAVL does</h3>
+      <ul>
+        <li>Parses <code>.avl</code> geometry files describing surfaces, sections, control surfaces, and airfoils.</li>
+        <li>Builds aircraft programmatically via the <a href="#geometry-api">Geometry API</a> (<code>Aircraft</code>, <code>Wing</code>, <code>Section</code>) without writing <code>.avl</code> files.</li>
+        <li>Assembles a vortex-lattice panel mesh over every lifting surface and slender body.</li>
+        <li>Solves the circulation distribution using an Aerodynamic Influence Coefficient (AIC) matrix.</li>
+        <li>Computes total forces (CL, CD, CY), moments (CMx, CMy, CMz), and far-field Trefftz-plane quantities.</li>
+        <li>Supports multi-variable trim/constraint solving via a Newton iteration loop, with <code>setup_trim()</code> presets for level flight and pull-ups.</li>
+        <li>Loads mass and inertia from <code>.mass</code> files for trim and flight-dynamics analysis.</li>
+        <li>Extracts stability derivatives with respect to alpha, beta, rotation rates, and control deflections.</li>
+        <li>Performs linearized flight-dynamics eigenanalysis (short period, phugoid, Dutch roll, spiral, etc.).</li>
+        <li>Applies piecewise-quadratic CD(CL) viscous drag polars per surface or section.</li>
+        <li>Caps sectional lift coefficients per wing via <code>clmax</code> (Geometry API only) to approximate stall onset and its effect on integrated forces and moments.</li>
+        <li>Visualizes aircraft geometry, spanwise lift distributions, and pressure coefficient (<code>Cp</code>) via <code>AVLSolver.plot_aircraft()</code>, <code>plot_lift_distribution()</code>, and <code>plot_cp()</code>.</li>
+      </ul>
+
+      <h3>What OpenAVL does not do (yet)</h3>
+      <ul>
+        <li>Interactive GUI (<code>openavl.gui</code> is a placeholder namespace only).</li>
+        <li>JAX automatic differentiation (planned for a future phase).</li>
+      </ul>
+
+      <h3>Project structure</h3>
+      <pre><code>OpenAVL/
+├── src/
+│   ├── __init__.py      <span class="cm"># Public exports: AVLSolver, Aircraft, parse_avl, ...</span>
+│   ├── core/            <span class="cm"># AVLSolver, AVLState, Newton solver, setup</span>
+│   ├── aero/            <span class="cm"># AIC, forces, Trefftz, CD(CL), vortex kernels</span>
+│   ├── geom/            <span class="cm"># Vortex-lattice mesh builder (internal)</span>
+│   ├── geometry/        <span class="cm"># User-facing Geometry API (Aircraft, Wing, CdclPolar)</span>
+│   ├── fileio/          <span class="cm"># .avl and .mass parsers</span>
+│   ├── analysis/        <span class="cm"># Stability derivatives, trim presets, eigenanalysis</span>
+│   ├── plotting/        <span class="cm"># Matplotlib 3D geometry visualization</span>
+│   ├── math/            <span class="cm"># LU factorization, rotation utilities</span>
+│   └── solver.py, ...   <span class="cm"># Backward-compatible re-exports</span>
+├── examples/            <span class="cm"># Supra sailplane walkthrough scripts</span>
+├── tests/data/avl/
+│   ├── geometries/      <span class="cm"># 55 .avl test models</span>
+│   ├── mass/            <span class="cm"># Reference .mass files</span>
+│   └── ref/             <span class="cm"># Fortran reference executables</span>
+├── docs/user_manual.html
+└── pyproject.toml</code></pre>
+    </section>
+
+    <!-- ─── INSTALLATION ──────────────────────────────────── -->
+    <section id="installation">
+      <h2>Installation</h2>
+
+      <h3>Requirements</h3>
+      <table>
+        <thead><tr><th>Dependency</th><th>Version</th></tr></thead>
+        <tbody>
+          <tr><td>Python</td><td>&gt;= 3.10</td></tr>
+          <tr><td>NumPy</td><td>&gt;= 1.24</td></tr>
+          <tr><td>SciPy</td><td>&gt;= 1.10</td></tr>
+          <tr><td>Matplotlib</td><td>&gt;= 3.7</td></tr>
+          <tr><td>Numba</td><td>&gt;= 0.60</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Install from source (recommended)</h3>
+      <pre><code><span class="cm"># Clone the repository</span>
+git clone https://github.com/danielenriquez59/openavl.git
+cd openavl
+
+<span class="cm"># Install in editable mode with dev extras (includes pytest)</span>
+pip install -e ".[dev]"</code></pre>
+
+      <h3>Verify the installation</h3>
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver
+<span class="fn">print</span>(AVLSolver)   <span class="cm"># should import without error</span></code></pre>
+      <h3>Optional extras</h3>
+      <p>
+        Extras use bracket notation and can be combined
+        (e.g. <code>pip install -e ".[dev,jax,web]"</code>).
+      </p>
+      <pre><code>pip install -e <span class="st">".[dev]"</span>         <span class="cm"># pytest</span>
+pip install -e <span class="st">".[web]"</span>         <span class="cm"># FastAPI + uvicorn + python-multipart</span>
+pip install -e <span class="st">".[jax]"</span>         <span class="cm"># JAX + jaxlib (CPU)</span>
+pip install -e <span class="st">".[jax-cuda12]"</span>  <span class="cm"># JAX with CUDA 12 GPU support</span></code></pre>
+      <p>
+        See <a href="#web-installation">Web GUI</a> and <a href="#jax-installation">JAX</a>
+        below for what each extra provides and how to verify the install.
+      </p>
+    </section>
+
+    <!-- ─── WEB INSTALLATION ──────────────────────────────── -->
+    <section id="web-installation">
+      <h2>Web GUI (Optional)</h2>
+
+      <p>
+        The browser-based GUI lives under <code>openavl.web</code>. It wraps the
+        core NumPy solver with a FastAPI backend and WebSocket session handling.
+        It is <strong>not</strong> installed with the base package.
+      </p>
+
+      <h3>Install</h3>
+      <pre><code>pip install -e <span class="st">".[web]"</span></code></pre>
+      <p>
+        Pulls in <code>fastapi</code>, <code>uvicorn[standard]</code>, and
+        <code>python-multipart</code> (for airfoil file uploads).
+      </p>
+
+      <h3>Launch</h3>
+      <pre><code>python -m openavl.web</code></pre>
+      <p>
+        Starts the server on <code>http://127.0.0.1:8000</code> and opens it in
+        your default browser. Matplotlib-based plotting
+        (<code>openavl.plotting</code>) works without this extra.
+      </p>
+
+      <h3>Run web tests</h3>
+      <pre><code>pytest tests/ui</code></pre>
+    </section>
+
+    <!-- ─── JAX INSTALLATION ──────────────────────────────── -->
+    <section id="jax-installation">
+      <h2>JAX (Optional)</h2>
+
+      <p>
+        OpenAVL ships a JAX backend under <code>openavl.jax</code> for automatic
+        differentiation, gradient-based optimization, and OpenMDAO integration
+        (see <code>examples/rectangular_wing_opt.py</code>). JAX is <strong>not</strong>
+        installed with the base package.
+      </p>
+
+      <h3>CPU install</h3>
+      <pre><code>pip install -e <span class="st">".[jax]"</span></code></pre>
+      <p>
+        This pulls in <code>jax</code> and <code>jaxlib</code> for CPU execution.
+      </p>
+
+      <h3>Windows with NVIDIA GPU (CUDA&nbsp;12)</h3>
+      <p>
+        On Windows, JAX requires native DLLs from <code>jaxlib</code>. If imports
+        fail with DLL or <code>ImportError</code> messages, install the
+        <strong>Microsoft Visual C++ Redistributable</strong> (x64) from Microsoft,
+        then install JAX with CUDA&nbsp;12 support:
+      </p>
+      <pre><code><span class="cm"># Upgrade/install JAX with CUDA 12 wheels (includes jaxlib)</span>
+pip install -U <span class="st">"jax[cuda12]"</span>
+
+<span class="cm"># Or via the OpenAVL extra:</span>
+pip install -e <span class="st">".[jax-cuda12]"</span></code></pre>
+
+      <div class="callout callout-warn">
+        <strong>Windows note</strong>
+        Use a standard Python <code>venv</code> rather than Anaconda if
+        <code>jaxlib</code> still fails to load after installing the VC++ redistributable.
+        WSL is another fallback if native Windows wheels remain problematic.
+      </div>
+
+      <h3>Verify JAX</h3>
+      <pre><code><span class="kw">import</span> jax
+jax.config.update(<span class="st">"jax_enable_x64"</span>, <span class="kw">True</span>)   <span class="cm"># required for AVL numerics</span>
+<span class="fn">print</span>(jax.devices())                     <span class="cm"># should list CPU and/or GPU</span>
+
+<span class="kw">from</span> openavl.jax <span class="kw">import</span> JaxAVLSolver
+<span class="fn">print</span>(JaxAVLSolver)</code></pre>
+
+      <h3>Run JAX tests</h3>
+      <pre><code>pytest tests/jax_backend
+pytest tests/jax_backend/core
+pytest tests/jax_backend/integration
+pytest tests/jax_backend/integration/test_analysis.py -v</code></pre>
+    </section>
+
+    <!-- ─── QUICK START ───────────────────────────────────── -->
+    <section id="quickstart">
+      <h2>Quick Start</h2>
+
+      <p>
+        The simplest workflow: load a geometry file, set flight conditions, run the solver, and
+        read the results.
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver
+
+<span class="cm"># 1. Load geometry</span>
+solver = AVLSolver(<span class="st">"tests/data/avl/geometries/plane.avl"</span>)
+
+<span class="cm"># 2. Set flight conditions</span>
+solver.set_variable(<span class="st">"alpha"</span>, <span class="nm">2.0</span>)         <span class="cm"># angle of attack in degrees</span>
+solver.set_variable(<span class="st">"beta"</span>, <span class="nm">0.0</span>)          <span class="cm"># sideslip angle in degrees</span>
+solver.set_parameter(<span class="st">"mach"</span>, <span class="nm">0.2</span>)
+solver.set_parameter(<span class="st">"velocity"</span>, <span class="nm">50.0</span>)    <span class="cm"># m/s</span>
+solver.set_parameter(<span class="st">"density"</span>, <span class="nm">1.225</span>)   <span class="cm"># kg/m^3</span>
+
+<span class="cm"># 3. Run the Newton solver</span>
+solver.execute_run(max_iter=<span class="nm">20</span>)
+
+<span class="cm"># 4. Retrieve results</span>
+results = solver.get_results()
+<span class="fn">print</span>(<span class="st">f"CL = {results['CL']:.4f}"</span>)
+<span class="fn">print</span>(<span class="st">f"CD = {results['CD']:.4f}"</span>)
+<span class="fn">print</span>(<span class="st">f"Converged: {results['converged']}"</span>)</code></pre>
+
+      <h3>Constructor keyword shortcuts</h3>
+      <p>
+        Common run-case values can be passed directly to the constructor instead of
+        calling <code>set_parameter</code> / <code>set_variable</code> afterward:
+      </p>
+      <pre><code>solver = AVLSolver(
+    <span class="st">"tests/data/avl/geometries/supra.avl"</span>,
+    mass_file=<span class="st">"tests/data/avl/mass/supra.mass"</span>,
+    alpha=<span class="nm">2.0</span>,       <span class="cm"># degrees</span>
+    vel=<span class="nm">15.0</span>,         <span class="cm"># airspeed (m/s)</span>
+    rho=<span class="nm">1.225</span>,
+    gravity=<span class="nm">9.81</span>,
+    cd0=<span class="nm">0.015</span>,
+    xcg=<span class="nm">3.75</span>,
+)</code></pre>
+
+      <h3>Trim example: fly at a target CL</h3>
+      <p>
+        Use <code>set_constraint()</code> to let the solver find the alpha that produces a
+        desired lift coefficient, instead of prescribing alpha directly.
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver
+
+solver = AVLSolver(<span class="st">"tests/data/avl/geometries/plane.avl"</span>)
+solver.set_parameter(<span class="st">"mach"</span>, <span class="nm">0.15</span>)
+
+<span class="cm"># Drive alpha to satisfy CL = 0.5</span>
+solver.set_constraint(<span class="st">"alpha"</span>, <span class="st">"cl"</span>, <span class="nm">0.5</span>)
+solver.execute_run(max_iter=<span class="nm">30</span>)
+
+r = solver.get_results()
+<span class="fn">print</span>(<span class="st">f"alpha = {r['alpha_deg']:.3f} deg  CL = {r['CL']:.4f}"</span>)</code></pre>
+
+      <h3>Level-flight trim with <code>setup_trim()</code></h3>
+      <p>
+        For coordinated maneuvers, call <code>setup_trim(mode=1)</code> before
+        <code>execute_run()</code>. Mode&nbsp;1 presets longitudinal constraints for level
+        flight or a banked turn (load factor from bank angle). Mode&nbsp;2 configures a
+        steady pull-up with prescribed turn radius. Reapply lateral constraints
+        (beta, aileron, rudder) after <code>setup_trim</code> if needed.
+      </p>
+      <pre><code>solver.set_parameter(<span class="st">"cl"</span>, <span class="nm">0.7</span>)
+solver.setup_trim(mode=<span class="nm">1</span>)
+solver.set_constraint(<span class="st">"elevator"</span>, <span class="st">"cm"</span>, <span class="nm">0.0</span>)
+solver.execute_run()</code></pre>
+
+      <h3>Example with control surface deflection</h3>
+      <pre><code>solver = AVLSolver(<span class="st">"tests/data/avl/geometries/plane.avl"</span>)
+solver.set_variable(<span class="st">"alpha"</span>, <span class="nm">3.0</span>)
+
+<span class="cm"># Deflect a named control surface (name must match the CONTROL card in the .avl file)</span>
+solver.set_variable(<span class="st">"elevator"</span>, <span class="nm">5.0</span>)   <span class="cm"># +5 degrees trailing-edge down</span>
+
+solver.execute_run()
+<span class="fn">print</span>(solver.get_results())</code></pre>
+    </section>
+
+    <hr />
+
+    <!-- ─── AVLSOLVER ─────────────────────────────────────── -->
+    <section id="avlsolver">
+      <h2>AVLSolver</h2>
+
+      <p>
+        <code>AVLSolver</code> is the primary user-facing class. Import it from the
+        top-level package:
+      </p>
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver</code></pre>
+      <p>
+        Legacy imports (<code>openavl.solver</code>, <code>openavl.parser</code>) remain
+        as thin re-export shims.
+      </p>
+
+      <h3>Constructor</h3>
+
+      <div class="method-sig">
+        <span class="name">AVLSolver</span>(<span class="param">geo</span><span class="type">: str | Path | Aircraft</span>, <span class="param">mass_file</span><span class="type">: str | Path | None = None</span>, <span class="param">debug</span><span class="type">: bool = False</span>, <span class="param">**state_options</span>)
+      </div>
+
+      <table>
+        <thead><tr><th>Parameter</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>geo</code></td><td><code>str | Path | Aircraft</code></td><td>Path to a <code>.avl</code> file, or a programmatic <code>Aircraft</code> instance from the <a href="#geometry-api">Geometry API</a>.</td></tr>
+          <tr><td><code>mass_file</code></td><td><code>str | Path | None</code></td><td>Optional path to a <code>.mass</code> file. Required for weight-based trim and eigenanalysis.</td></tr>
+          <tr><td><code>debug</code></td><td><code>bool</code></td><td>Enable verbose debug output from the solver. Default <code>False</code>.</td></tr>
+          <tr><td><code>**state_options</code></td><td>keyword args</td><td>Initial run-case values: <code>alpha</code>, <code>beta</code> (degrees), <code>vel</code>, <code>rho</code>, <code>gravity</code>, <code>cd0</code>, <code>xcg</code>/<code>ycg</code>/<code>zcg</code>, <code>mach</code>, etc. When using an <code>Aircraft</code>, pass <code>base_dir</code> to resolve relative airfoil/body file paths.</td></tr>
+        </tbody>
+      </table>
+
+      <p>
+        The constructor parses the geometry file, allocates all solver arrays in an
+        <code>AVLState</code>, and builds the vortex-lattice mesh. After construction the solver
+        is ready to accept variables, parameters, and constraints.
+      </p>
+
+      <h3>Methods</h3>
+
+      <!-- set_variable -->
+      <div class="method-sig">
+        <span class="ret">None</span> &nbsp;<span class="name">set_variable</span>(<span class="param">name</span><span class="type">: str</span>, <span class="param">value</span><span class="type">: float</span>) &rarr; <span class="type">None</span>
+      </div>
+      <p>
+        Set a run-case <em>variable</em> &mdash; a quantity the solver will use as a fixed
+        input or as the unknowns it adjusts during constraint solving. Angles are in
+        <strong>degrees</strong>; rotation rates are in the non-dimensional forms listed in the
+        <a href="#variables">Variables table</a>.
+      </p>
+      <p>
+        Control surface names are case-sensitive and must match the <code>CONTROL</code> card name
+        in the <code>.avl</code> file.
+      </p>
+
+      <!-- set_parameter -->
+      <div class="method-sig">
+        <span class="ret">None</span> &nbsp;<span class="name">set_parameter</span>(<span class="param">name</span><span class="type">: str</span>, <span class="param">value</span><span class="type">: float</span>) &rarr; <span class="type">None</span>
+      </div>
+      <p>
+        Set a dimensional run-case <em>parameter</em> such as Mach number, velocity, or air
+        density. See the <a href="#parameters">Parameters table</a> for accepted names.
+      </p>
+
+      <!-- set_constraint -->
+      <div class="method-sig">
+        <span class="ret">None</span> &nbsp;<span class="name">set_constraint</span>(<span class="param">variable</span><span class="type">: str</span>, <span class="param">constraint</span><span class="type">: str</span>, <span class="param">value</span><span class="type">: float</span>) &rarr; <span class="type">None</span>
+      </div>
+      <p>
+        Configure the Newton solver to drive <em>variable</em> so that <em>constraint</em> equals
+        <em>value</em>. For example, to find the alpha that trims the pitching moment to zero:
+      </p>
+      <pre><code>solver.set_constraint(<span class="st">"alpha"</span>, <span class="st">"cm"</span>, <span class="nm">0.0</span>)</code></pre>
+      <p>See the <a href="#constraints">Constraints table</a> for all valid constraint names.</p>
+
+      <!-- execute_run -->
+      <div class="method-sig">
+        <span class="ret">None</span> &nbsp;<span class="name">execute_run</span>(<span class="param">max_iter</span><span class="type">: int = 20</span>) &rarr; <span class="type">None</span>
+      </div>
+      <p>
+        Run the Newton iteration loop. The solver iterates until all constraint residuals are
+        below the convergence tolerance (2e-5) or <code>max_iter</code> iterations are reached.
+        Results are written into <code>solver.state</code> and accessible via
+        <code>get_results()</code>.
+      </p>
+      <div class="callout callout-warn">
+        <strong>Warning</strong>
+        If <code>results['converged']</code> is <code>False</code>, the solution did not reach
+        tolerance. Increase <code>max_iter</code> or check that the flight conditions are
+        physically reasonable.
+      </div>
+
+      <!-- get_results -->
+      <div class="method-sig">
+        <span class="ret">dict</span> &nbsp;<span class="name">get_results</span>() &rarr; <span class="type">dict[str, Any]</span>
+      </div>
+      <p>
+        Return a dictionary of force, moment, and geometry results from the most recent solve.
+        See the <a href="#results">Results reference</a> for all keys.
+      </p>
+
+      <!-- get_stability_derivatives -->
+      <div class="method-sig">
+        <span class="ret">StabilityDerivatives</span> &nbsp;<span class="name">get_stability_derivatives</span>() &rarr; <span class="type">StabilityDerivatives</span>
+      </div>
+      <p>
+        Return classical stability-axis derivatives (dCL/d&alpha;, dCm/d&alpha;,
+        stability-axis rate derivatives, and per-control dictionaries) from the most
+        recent <code>execute_run()</code>. Derivatives with respect to
+        <code>alpha</code>, <code>beta</code>, and control deflections are per radian;
+        rate derivatives are non-dimensional. Default axis orientation is NASA Standard
+        (X&nbsp;fwd, Z&nbsp;down). See <a href="#derivative-axes">Derivative coordinate systems</a>.
+      </p>
+
+      <!-- setup_trim -->
+      <div class="method-sig">
+        <span class="ret">None</span> &nbsp;<span class="name">setup_trim</span>(<span class="param">mode</span><span class="type">: int = 1</span>) &rarr; <span class="type">None</span>
+      </div>
+      <p>
+        Apply AVL trim presets. Mode <code>1</code>: level flight or banked turn (airspeed
+        and/or CL derived from mass and density). Mode <code>2</code>: pull-up with turn
+        radius. Does not run the aerodynamic solve &mdash; call
+        <code>execute_run()</code> afterward.
+      </p>
+
+      <!-- eigenvalues -->
+      <div class="method-sig">
+        <span class="ret">EigenAnalysisResult</span> &nbsp;<span class="name">eigenvalues</span>(<span class="param">use_approx</span><span class="type">: bool = False</span>) &rarr; <span class="type">EigenAnalysisResult</span>
+      </div>
+      <p>
+        Linearized rigid-body eigenanalysis at the current trimmed state. Returns mode
+        names, frequencies, damping ratios, and time constants. Requires positive mass,
+        inertia, and airspeed (typically from a <code>.mass</code> file). See
+        <a href="#analysis">Stability &amp; Dynamics</a>.
+      </p>
+
+      <!-- plot_aircraft / plot_lift_distribution / plot_cp -->
+      <div class="method-sig">
+        <span class="ret">tuple[Figure, Axes]</span> &nbsp;<span class="name">plot_aircraft</span>(<span class="param">**kwargs</span>)
+      </div>
+      <p>
+        Plot the aircraft geometry in 3D. Delegates to
+        <code>openavl.plotting.plot_aircraft_3d</code>. Does not require a prior solve.
+        <code>plot_geom()</code> is an alias for <code>plot_aircraft()</code>.
+      </p>
+
+      <div class="method-sig">
+        <span class="ret">tuple[Figure, Axes]</span> &nbsp;<span class="name">plot_lift_distribution</span>(<span class="param">**kwargs</span>)
+      </div>
+      <p>
+        Plot spanwise strip lift (<code>cl_lstrp</code>) or normal-force loading
+        (<code>cnc</code>) after <code>execute_run()</code>. Keyword arguments such as
+        <code>component</code>, <code>quantity</code>, and <code>show</code> are forwarded
+        to <code>openavl.plotting.plot_lift_distribution</code>.
+      </p>
+
+      <div class="method-sig">
+        <span class="ret">tuple[Figure, Axes]</span> &nbsp;<span class="name">plot_cp</span>(<span class="param">**kwargs</span>)
+      </div>
+      <p>
+        Plot the solved pressure-coefficient distribution on lifting surfaces in 3D.
+        Requires a completed <code>execute_run()</code> so that <code>state.dcp</code> is
+        populated. Keyword arguments are forwarded to <code>openavl.plotting.plot_cp</code>.
+      </p>
+    </section>
+
+    <!-- ─── VARIABLES ─────────────────────────────────────── -->
+    <section id="variables">
+      <h2>Variables</h2>
+
+      <p>
+        Pass these names to <code>solver.set_variable(name, value)</code>. All angle variables
+        are in <strong>degrees</strong>.
+      </p>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Name(s)</th>
+            <th>Units</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>alpha</code></td>
+            <td>degrees</td>
+            <td>Angle of attack.</td>
+          </tr>
+          <tr>
+            <td><code>beta</code></td>
+            <td>degrees</td>
+            <td>Sideslip angle.</td>
+          </tr>
+          <tr>
+            <td><code>pb/2V</code> or <code>pb/2v</code></td>
+            <td>non-dim</td>
+            <td>Non-dimensional roll rate (p &times; b / 2V).</td>
+          </tr>
+          <tr>
+            <td><code>qc/2V</code> or <code>qc/2v</code></td>
+            <td>non-dim</td>
+            <td>Non-dimensional pitch rate (q &times; c / 2V).</td>
+          </tr>
+          <tr>
+            <td><code>rb/2V</code> or <code>rb/2v</code></td>
+            <td>non-dim</td>
+            <td>Non-dimensional yaw rate (r &times; b / 2V).</td>
+          </tr>
+          <tr>
+            <td><em>&lt;control name&gt;</em></td>
+            <td>degrees</td>
+            <td>
+              Deflection of a named control surface. The name must exactly match
+              the first field of a <code>CONTROL</code> card in the <code>.avl</code> file
+              (e.g., <code>"elevator"</code>, <code>"aileron"</code>, <code>"rudder"</code>).
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-info">
+        <strong>Note</strong>
+        Rotation rate names are case-sensitive for the second letter V (e.g., <code>pb/2V</code>
+        and <code>pb/2v</code> are both accepted; see solver.py for the full alias list).
+      </div>
+    </section>
+
+    <!-- ─── PARAMETERS ───────────────────────────────────── -->
+    <section id="parameters">
+      <h2>Parameters</h2>
+
+      <p>
+        Pass these names to <code>solver.set_parameter(name, value)</code>. Names are
+        case-insensitive.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Name(s)</th><th>Units</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>mach</code></td><td>&mdash;</td><td>Freestream Mach number.</td></tr>
+          <tr><td><code>velocity</code> / <code>vee</code></td><td>m/s (or consistent units)</td><td>Freestream airspeed.</td></tr>
+          <tr><td><code>density</code> / <code>rho</code></td><td>kg/m&sup3;</td><td>Air density.</td></tr>
+          <tr><td><code>gravity</code></td><td>m/s&sup2;</td><td>Gravitational acceleration (default 9.81).</td></tr>
+          <tr><td><code>cl</code></td><td>&mdash;</td><td>Reference lift coefficient (used for certain polar lookups).</td></tr>
+          <tr><td><code>cd0</code></td><td>&mdash;</td><td>Profile drag offset coefficient.</td></tr>
+          <tr><td><code>bank</code> / <code>phi</code></td><td>degrees</td><td>Bank (roll) angle.</td></tr>
+          <tr><td><code>theta</code></td><td>degrees</td><td>Pitch angle.</td></tr>
+          <tr><td><code>psi</code></td><td>degrees</td><td>Yaw (heading) angle.</td></tr>
+          <tr><td><code>xcg</code></td><td>m (geometry units)</td><td>Center-of-gravity x coordinate.</td></tr>
+          <tr><td><code>ycg</code></td><td>m (geometry units)</td><td>Center-of-gravity y coordinate.</td></tr>
+          <tr><td><code>zcg</code></td><td>m (geometry units)</td><td>Center-of-gravity z coordinate.</td></tr>
+          <tr><td><code>mass</code></td><td>kg (or consistent units)</td><td>Aircraft mass. Overridden by <code>.mass</code> file when loaded.</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-tip">
+        <strong>Tip</strong>
+        Units are not enforced internally &mdash; the solver works with whatever consistent system
+        is used in the <code>.avl</code> geometry file. SI (meters, kg, seconds) is conventional.
+      </div>
+    </section>
+
+    <!-- ─── CONSTRAINTS ──────────────────────────────────── -->
+    <section id="constraints">
+      <h2>Constraints</h2>
+
+      <p>
+        Pass constraint names as the second argument to
+        <code>solver.set_constraint(variable, constraint, value)</code>. Names are
+        case-insensitive.
+      </p>
+
+      <p>
+        Each constraint equation tells the Newton solver: <em>adjust variable until this
+        aerodynamic quantity equals value</em>.
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>Constraint name(s)</th><th>Quantity driven to <em>value</em></th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>alpha</code></td><td>Angle of attack (degrees)</td></tr>
+          <tr><td><code>beta</code></td><td>Sideslip angle (degrees)</td></tr>
+          <tr><td><code>pb/2V</code> / <code>pb/2v</code></td><td>Roll rate (non-dim)</td></tr>
+          <tr><td><code>qc/2V</code> / <code>qc/2v</code></td><td>Pitch rate (non-dim)</td></tr>
+          <tr><td><code>rb/2V</code> / <code>rb/2v</code></td><td>Yaw rate (non-dim)</td></tr>
+          <tr><td><code>cl</code></td><td>Total lift coefficient CL</td></tr>
+          <tr><td><code>cy</code></td><td>Total side-force coefficient CY</td></tr>
+          <tr><td><code>cmx</code> / <code>cll</code></td><td>Rolling moment coefficient CMx</td></tr>
+          <tr><td><code>cm</code> / <code>cmy</code></td><td>Pitching moment coefficient CMy</td></tr>
+          <tr><td><code>cn</code> / <code>cmz</code></td><td>Yawing moment coefficient CMz</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Multi-constraint trim example</h3>
+      <pre><code><span class="cm"># Trimmed flight: zero pitching moment, zero rolling moment</span>
+<span class="cm"># Solved by adjusting alpha and aileron deflection simultaneously</span>
+solver.set_constraint(<span class="st">"alpha"</span>,    <span class="st">"cm"</span>,  <span class="nm">0.0</span>)
+solver.set_constraint(<span class="st">"aileron"</span>, <span class="st">"cmx"</span>, <span class="nm">0.0</span>)
+solver.execute_run(max_iter=<span class="nm">40</span>)</code></pre>
+    </section>
+
+    <!-- ─── RESULTS ───────────────────────────────────────── -->
+    <section id="results">
+      <h2>Results</h2>
+
+      <p>
+        <code>solver.get_results()</code> returns a dictionary with the following keys after a
+        successful <code>execute_run()</code> call. Force coefficients use mixed axis
+        systems: <code>CL</code>, <code>CD</code>, and <code>CY</code> are stability-axis;
+        <code>CF</code> is body-axis. See <a href="#derivative-axes">Derivative coordinate systems</a>.
+      </p>
+
+      <div class="result-grid">
+        <div class="result-card"><div class="key">CL</div><div class="desc">Total lift coefficient</div></div>
+        <div class="result-card"><div class="key">CD</div><div class="desc">Total drag coefficient (near-field)</div></div>
+        <div class="result-card"><div class="key">CY</div><div class="desc">Total side-force coefficient</div></div>
+        <div class="result-card"><div class="key">CM</div><div class="desc">Moment coefficients [CMx, CMy, CMz] (list)</div></div>
+        <div class="result-card"><div class="key">CF</div><div class="desc">Total force coefficients [CFx, CFy, CFz] (list)</div></div>
+        <div class="result-card"><div class="key">CDV</div><div class="desc">Viscous (profile) drag coefficient</div></div>
+        <div class="result-card"><div class="key">CLFF</div><div class="desc">Far-field lift coefficient (Trefftz plane)</div></div>
+        <div class="result-card"><div class="key">CDFF</div><div class="desc">Far-field induced drag coefficient</div></div>
+        <div class="result-card"><div class="key">CYFF</div><div class="desc">Far-field side-force coefficient</div></div>
+        <div class="result-card"><div class="key">SPANEF</div><div class="desc">Span efficiency factor e</div></div>
+        <div class="result-card"><div class="key">converged</div><div class="desc">True if Newton loop converged</div></div>
+        <div class="result-card"><div class="key">alpha_deg</div><div class="desc">Final angle of attack (degrees)</div></div>
+        <div class="result-card"><div class="key">beta_deg</div><div class="desc">Final sideslip angle (degrees)</div></div>
+        <div class="result-card"><div class="key">mach</div><div class="desc">Freestream Mach number</div></div>
+      </div>
+
+      <h4>Geometry sub-dictionary</h4>
+      <p><code>results['geometry']</code> contains mesh statistics:</p>
+      <table>
+        <thead><tr><th>Key</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>NVOR</code></td><td>Total number of horseshoe vortices (panels)</td></tr>
+          <tr><td><code>NSTRIP</code></td><td>Total number of spanwise strips</td></tr>
+          <tr><td><code>NSURF</code></td><td>Number of aerodynamic surfaces</td></tr>
+          <tr><td><code>NBODY</code></td><td>Number of slender bodies</td></tr>
+          <tr><td><code>NLNODE</code></td><td>Total body line nodes</td></tr>
+        </tbody>
+      </table>
+
+      <h4>Per-surface and strip data in <code>solver.state</code></h4>
+      <p>
+        After a solve, low-level arrays on <code>solver.state</code> expose distributed
+        results for post-processing (as in <code>examples/supra_load_factor.py</code>):
+      </p>
+      <table>
+        <thead><tr><th>Field</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>clsurf</code>, <code>cdsurf</code>, <code>cysurf</code></td><td>Per-surface lift, drag, and side-force coefficients</td></tr>
+          <tr><td><code>cmsurf</code></td><td>Per-surface rolling, pitching, yawing moments (3 &times; NSURF)</td></tr>
+          <tr><td><code>clstrp</code>, <code>cnc</code>, <code>clt_lstrp</code>, <code>cl_lstrp</code></td><td>Strip lift, normal-force, and local lift coefficients (see <a href="#clmax-capping">Sectional CLmax</a>)</td></tr>
+          <tr><td><code>clmax_surf</code></td><td>Per-surface CLmax limit (0 = disabled); populated from <code>Wing.clmax</code> when using the Geometry API</td></tr>
+          <tr><td><code>rle</code>, <code>chord</code>, <code>wstrip</code></td><td>Strip geometry for spanwise lift distribution plots</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── ANALYSIS ──────────────────────────────────────── -->
+    <section id="analysis">
+      <h2>Stability &amp; Dynamics</h2>
+
+      <p>
+        Beyond force coefficients, OpenAVL exposes AVL's stability-derivative extraction
+        and linearized flight-dynamics eigenanalysis through <code>AVLSolver</code>.
+      </p>
+
+      <h3>Stability derivatives</h3>
+      <pre><code>solver.execute_run()
+derivs = solver.get_stability_derivatives()
+
+<span class="fn">print</span>(derivs.CL_a)   <span class="cm"># dCL/d(alpha) per radian</span>
+<span class="fn">print</span>(derivs.Cm_a)   <span class="cm"># dCm/d(alpha)</span>
+<span class="fn">print</span>(derivs.CL_q)   <span class="cm"># dCL/d(pitch rate)</span>
+<span class="fn">print</span>(derivs.Cn_r)   <span class="cm"># dCn/d(yaw rate)</span>
+
+<span class="cm"># Control effectiveness (per radian of deflection)</span>
+<span class="fn">print</span>(derivs.Cm_d[<span class="st">"elevator"</span>])</code></pre>
+
+      <p>
+        <code>StabilityDerivatives</code> provides force/moment derivatives with respect to
+        <code>alpha</code>, <code>beta</code>, stability-axis rates (<code>p</code>,
+        <code>q</code>, <code>r</code>, non-dimensional), and each control surface.
+        Derivatives with respect to <code>alpha</code>, <code>beta</code>, and control
+        deflections are per radian. Control derivatives are stored in dictionaries keyed
+        by control name (<code>CL_d</code>, <code>Cm_d</code>, <code>Cl_d</code>,
+        <code>Cn_d</code>, etc.).
+      </p>
+
+      <h3 id="derivative-axes">Derivative coordinate systems</h3>
+
+      <p>
+        OpenAVL follows AVL&rsquo;s axis conventions for forces, moments, and their
+        partial derivatives. By default both stability- and body-axis derivatives use the
+        <strong>NASA Standard</strong> orientation: <strong>X forward, Z down</strong>
+        (AVL&rsquo;s &ldquo;Standard axis orientation&rdquo;). This is controlled by
+        <code>solver.state.lnasa_sa</code>, which defaults to <code>True</code>. Set it to
+        <code>False</code> before <code>execute_run()</code> to use AVL&rsquo;s
+        <strong>Geometric</strong> convention (X aft, Z up).
+      </p>
+
+      <p>
+        AVL defines three axis systems for near-field forces. OpenAVL exposes derivative
+        matrices for the first two; wind-axis derivatives are not provided (Trefftz-plane
+        drag is available separately via <code>CDFF</code> in results).
+      </p>
+
+      <table>
+        <thead>
+          <tr><th>System</th><th>How to obtain</th><th>Forces</th><th>Moments</th><th>Perturbations</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Stability axes</strong></td>
+            <td><code>solver.get_stability_derivatives()</code></td>
+            <td><code>CL</code>, <code>CD</code>, <code>CY</code></td>
+            <td><code>Cl</code>, <code>Cm</code>, <code>Cn</code> (roll/yaw in stability axes)</td>
+            <td><code>&alpha;</code>, <code>&beta;</code>, <code>p</code>&prime;, <code>q</code>&prime;, <code>r</code>&prime;, controls</td>
+          </tr>
+          <tr>
+            <td><strong>Body axes</strong></td>
+            <td><code>compute_body_axis_derivatives(solver.state)</code> (<code>openavl.analysis</code>)</td>
+            <td><code>CX</code>, <code>CY</code>, <code>CZ</code></td>
+            <td><code>Cl</code>, <code>Cm</code>, <code>Cn</code> (body axes)</td>
+            <td><code>u</code>, <code>v</code>, <code>w</code>, <code>p</code>, <code>q</code>, <code>r</code>, controls</td>
+          </tr>
+          <tr>
+            <td><strong>Wind axes</strong></td>
+            <td>Not exposed as derivatives</td>
+            <td colspan="3">Forces differ from stability axes only when <code>&beta;</code>&nbsp;&ne;&nbsp;0; use Trefftz <code>CDFF</code> for induced drag in performance work.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p>
+        Stability axes are pitched by angle of attack from the body axes (y is common to
+        both). Pitch moment <code>Cm</code> is identical in body and stability axes.
+        Stability-axis roll and yaw moments (<code>Cl</code>, <code>Cn</code> in
+        <code>StabilityDerivatives</code>) are transformed from body-axis moments; they are
+        not the same as the body-axis <code>Cl</code> and <code>Cn</code> in the body
+        derivative matrix.
+      </p>
+
+      <p>
+        Rate derivatives use non-dimensional rates
+        (<code>pb/2V</code>, <code>qc/2V</code>, <code>rb/2V</code>). By default
+        <code>solver.state.lsa_rates</code> is <code>False</code>, so trim constraints on
+        body rates use body-axis <code>p</code>, <code>q</code>, <code>r</code> internally,
+        while <code>get_stability_derivatives()</code> still reports stability-axis rate
+        derivatives (<code>p</code>&prime;, <code>q</code>&prime;, <code>r</code>&prime;).
+        Set <code>lsa_rates = True</code> to interpret rate constraints in stability axes
+        (AVL Options menu equivalent).
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl.analysis <span class="kw">import</span> compute_body_axis_derivatives
+
+body = compute_body_axis_derivatives(solver.state)
+<span class="cm"># body.rows: ["u", "v", "w", "p", "q", "r", "d1", ...]</span>
+<span class="cm"># body.cols: ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]</span>
+<span class="cm"># body.values[i][j] = d(col_j) / d(row_i)</span></code></pre>
+
+      <p>
+        <code>get_results()</code> mixes axis systems: <code>CL</code>, <code>CD</code>, and
+        <code>CY</code> are stability-axis forces; <code>CF</code> is the raw body-axis
+        force vector <code>[Cx, Cy, Cz]</code>. The body-axis derivative matrix follows
+        AVL&rsquo;s <code>DERMATB</code> sign layout and is not identical to differencing
+        <code>CF</code> directly. Control-surface rows are returned per radian of
+        deflection; velocity rows <code>u</code>, <code>v</code>, <code>w</code> are
+        normalized perturbations (for small angles, <code>v</code> and <code>w</code> align
+        with sideslip and angle of attack in radians).
+      </p>
+
+      <h3>Eigenvalue analysis</h3>
+      <pre><code>modes = solver.eigenvalues()
+
+<span class="kw">for</span> mode <span class="kw">in</span> modes.modes:
+    <span class="kw">if</span> mode.frequency_hz > <span class="nm">0.0</span>:
+        <span class="fn">print</span>(<span class="st">f"{mode.name}: freq={mode.frequency_hz:.3f} Hz, "</span>
+              <span class="st">f"damping={mode.damping_ratio:.3f}"</span>)
+    <span class="kw">elif</span> mode.time_constant:
+        <span class="fn">print</span>(<span class="st">f"{mode.name}: tau={mode.time_constant:.1f} s"</span>)</code></pre>
+
+      <p>
+        Each <code>FlightMode</code> record includes <code>name</code>,
+        <code>eigenvalue</code>, <code>frequency_hz</code>, <code>damping_ratio</code>, and
+        <code>time_constant</code> when applicable. Pass <code>use_approx=True</code> for
+        AVL's faster approximate state matrix.
+      </p>
+
+      <div class="callout callout-warn">
+        <strong>Prerequisite</strong>
+        Eigenanalysis requires a converged trim with positive mass, inertia, and airspeed.
+        Load a <code>.mass</code> file and set velocity (or let <code>setup_trim</code>
+        compute it from target CL).
+      </div>
+    </section>
+
+    <hr />
+
+    <!-- ─── EXAMPLES ──────────────────────────────────────── -->
+    <section id="examples">
+      <h2>Examples</h2>
+
+      <p>
+        Five scripts in <code>examples/</code> analyze the bundled Supra 3.4&nbsp;m
+        F3J sailplane (<code>tests/data/avl/geometries/supra.avl</code>). Run from the
+        repository root after <code>pip install -e .</code>:
+      </p>
+
+      <table>
+        <thead><tr><th>Script</th><th>Demonstrates</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><code>supra_example.py</code></td>
+            <td>Load <code>.avl</code> + <code>.mass</code>, trim to CL&nbsp;=&nbsp;0.7, stability derivatives, eigenmodes</td>
+          </tr>
+          <tr>
+            <td><code>supra_geomapi_example.py</code></td>
+            <td>Same analysis built entirely with the <a href="#geometry-api">Geometry API</a> (no <code>.avl</code> file)</td>
+          </tr>
+          <tr>
+            <td><code>supra_geometry.py</code></td>
+            <td>Shared Supra geometry module (<code>build_supra_aircraft()</code>) imported by the other Geometry API examples</td>
+          </tr>
+          <tr>
+            <td><code>supra_load_factor.py</code></td>
+            <td>V-n maneuver point: target load factor and airspeed, per-surface forces, strip lift distribution</td>
+          </tr>
+          <tr>
+            <td><code>supra_aero_sweep.py</code></td>
+            <td>Alpha sweep polars: CL, CD, and Cm versus angle of attack at fixed airspeed</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <pre><code>python examples/supra_example.py
+python examples/supra_geomapi_example.py
+python examples/supra_load_factor.py
+python examples/supra_aero_sweep.py</code></pre>
+
+      <p>
+        <code>supra_example.py</code> ends with <code>solver.plot_aircraft()</code> and
+        <code>solver.plot_cp()</code>. <code>supra_geomapi_example.py</code> also plots
+        the wing lift distribution via <code>solver.plot_lift_distribution()</code>.
+      </p>
+    </section>
+
+    <hr />
+
+    <!-- ─── VISUALIZATION ─────────────────────────────────── -->
+    <section id="visualization">
+      <h2>Visualization</h2>
+
+      <p>
+        <code>AVLSolver</code> exposes matplotlib-based visualization through
+        <code>plot_aircraft()</code>, <code>plot_lift_distribution()</code>, and
+        <code>plot_cp()</code>. The underlying implementations live in
+        <code>openavl.plotting</code> and can also be called directly when plotting from
+        an <code>.avl</code> path, <code>Aircraft</code>, or <code>AVLModel</code> without
+        a solver instance. Matplotlib is installed by default with OpenAVL.
+      </p>
+
+      <h3>3D geometry preview</h3>
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver
+
+solver = AVLSolver(<span class="st">"tests/data/avl/geometries/supra.avl"</span>)
+solver.plot_aircraft()   <span class="cm"># opens an interactive 3D window</span>
+
+<span class="cm"># plot_geom() is an alias for plot_aircraft()</span>
+fig, ax = solver.plot_aircraft(show=<span class="kw">False</span>)
+fig.savefig(<span class="st">"supra.png"</span>)
+
+<span class="cm"># Or pass geometry directly via openavl.plotting</span>
+<span class="kw">from</span> openavl.plotting <span class="kw">import</span> plot_aircraft_3d
+fig, ax = plot_aircraft_3d(<span class="st">"plane.avl"</span>, show=<span class="kw">False</span>)</code></pre>
+
+      <p>
+        Surfaces are color-coded by name or component index; control-surface hinge
+        locations are highlighted. This is a geometry wireframe preview &mdash; not a
+        pressure (<code>Cp</code>) plot.
+      </p>
+
+      <h3>Spanwise lift distribution</h3>
+      <p>
+        After a converged solve, plot local strip lift (<code>cl_lstrp</code>) or
+        normal-force loading (<code>cnc</code>) versus spanwise position:
+      </p>
+      <pre><code>solver.execute_run()
+solver.plot_lift_distribution(
+    component=<span class="nm">1</span>,       <span class="cm"># optional: restrict to one AVL component</span>
+    quantity=<span class="st">"cl"</span>,     <span class="cm"># "cl" or "cnc"</span>
+    title=<span class="st">"Wing lift distribution"</span>,
+)
+
+<span class="cm"># Or collect raw series for custom plots</span>
+<span class="kw">from</span> openavl.plotting <span class="kw">import</span> collect_lift_distribution
+
+series = collect_lift_distribution(solver.state, solver.model, component=<span class="nm">1</span>)
+<span class="kw">for</span> item <span class="kw">in</span> series:
+    <span class="fn">print</span>(item.label, item.y, item.cl)</code></pre>
+
+      <p>
+        When a wing has <code>clmax</code> set via the Geometry API, the plot draws a
+        dashed horizontal line at the limit.
+      </p>
+
+      <h3>Pressure coefficient (Cp)</h3>
+      <p>
+        After a converged solve, plot the lattice pressure distribution on lifting surfaces:
+      </p>
+      <pre><code>solver.execute_run()
+solver.plot_cp()                    <span class="cm"># interactive 3D Cp plot</span>
+fig, ax = solver.plot_cp(show=<span class="kw">False</span>)  <span class="cm"># save or customize</span></code></pre>
+
+      <div class="callout callout-info">
+        <strong>Note</strong>
+        Use <code>openavl.plotting.collect_cp_surfaces</code> when you need the raw mesh
+        and Cp arrays for custom visualization.
+      </div>
+    </section>
+
+    <hr />
+
+    <!-- ─── GEOMETRY API ──────────────────────────────────── -->
+    <section id="geometry-api">
+      <h2>Geometry API</h2>
+
+      <p>
+        Build aircraft without <code>.avl</code> files using builder classes in
+        <code>openavl.geometry</code>. Pass the resulting <code>Aircraft</code> directly
+        to <code>AVLSolver</code>.
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl <span class="kw">import</span> AVLSolver, Aircraft
+
+ac = Aircraft(name=<span class="st">"Demo"</span>, sref=<span class="nm">10.0</span>, cref=<span class="nm">1.0</span>, bref=<span class="nm">8.0</span>)
+wing = ac.add_wing(<span class="st">"Wing"</span>, n_chord=<span class="nm">8</span>, n_span=<span class="nm">16</span>, symmetric=<span class="kw">True</span>)
+root = wing.add_section(xyzle=[<span class="nm">0</span>, <span class="nm">0</span>, <span class="nm">0</span>], chord=<span class="nm">1.0</span>)
+root.set_airfoil_naca(<span class="st">"2412"</span>)
+tip = wing.add_section(xyzle=[<span class="nm">0.2</span>, <span class="nm">4</span>, <span class="nm">0</span>], chord=<span class="nm">0.6</span>)
+tip.set_airfoil_naca(<span class="st">"2412"</span>)
+tip.add_control(<span class="st">"aileron"</span>, xhinge=<span class="nm">0.75</span>, sgn_dup=<span class="nm">-1.0</span>)
+
+solver = AVLSolver(ac, base_dir=<span class="st">"/path/to/airfoils"</span>)</code></pre>
+
+      <h3>Key classes</h3>
+      <table>
+        <thead><tr><th>Class</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td><code>Aircraft</code></td><td>Top-level container: reference dimensions, symmetry flags, <code>add_wing()</code>, <code>add_body()</code>, <code>to_avl_model()</code></td></tr>
+          <tr><td><code>Wing</code></td><td>Lifting surface with panel counts, Y-duplicate, scale/translate, <code>add_section()</code>, <code>set_cdcl_polar()</code>, optional <code>clmax</code> for sectional stall capping</td></tr>
+          <tr><td><code>Section</code></td><td>Spanwise station: leading-edge XYZ, chord, incidence, airfoil, controls, optional CD(CL) polar</td></tr>
+          <tr><td><code>Body</code></td><td>Fuselage/nacelle from <code>body_file</code> or inline coordinates</td></tr>
+          <tr><td><code>ControlSurface</code></td><td>Hinge definition (gain, xhinge fraction, hinge vector, duplicate sign)</td></tr>
+          <tr><td><code>CdclPolar</code></td><td>Three-point viscous drag polar; see <a href="#cdcl-polar">CD(CL) Polars</a></td></tr>
+        </tbody>
+      </table>
+
+      <h3>Airfoil assignment</h3>
+      <p>On any <code>Section</code>:</p>
+      <ul>
+        <li><code>set_airfoil_naca("2412")</code> &mdash; NACA 4-digit</li>
+        <li><code>set_airfoil_file("ag40d.dat")</code> &mdash; external coordinate file (resolved via <code>base_dir</code>)</li>
+        <li><code>set_airfoil_coords([[x, y], ...])</code> &mdash; inline coordinates</li>
+      </ul>
+
+      <div class="callout callout-tip">
+        <strong>Tip</strong>
+        See <code>examples/supra_geomapi_example.py</code> for a full programmatic
+        reproduction of the Supra sailplane, including multi-surface wings, bodies,
+        and control surfaces.
+      </div>
+    </section>
+
+    <!-- ─── CDCL POLAR ────────────────────────────────────── -->
+    <section id="cdcl-polar">
+      <h2>CD(CL) Polars</h2>
+
+      <p>
+        Viscous strip drag uses AVL's piecewise-quadratic CD(CL) polar defined by three
+        anchor points. In <code>.avl</code> files this is the <code>CDCL</code> keyword; in
+        the Geometry API use <code>CdclPolar</code>.
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl.geometry <span class="kw">import</span> CdclPolar
+
+polar = CdclPolar.from_list([
+    <span class="nm">-1.0</span>, <span class="nm">0.10</span>,   <span class="cm"># cl_neg, cd_neg</span>
+     <span class="nm">0.0</span>, <span class="nm">0.015</span>,  <span class="cm"># cl_min, cd_min  (cd_min &gt; 0 enables viscous drag)</span>
+     <span class="nm">1.5</span>, <span class="nm">0.12</span>,   <span class="cm"># cl_pos, cd_pos</span>
+])
+wing.set_cdcl_polar(polar)
+<span class="cm"># or per-section: section.set_cdcl_polar(polar)</span></code></pre>
+
+      <p>
+        <code>CdclPolar.from_points()</code> accepts three <code>(CL, CD)</code> tuples in any
+        order (sorted internally). The polar is active when <code>cd_min != 0</code>
+        (<code>polar.is_active</code>).
+      </p>
+    </section>
+
+    <!-- ─── CLMAX CAPPING ─────────────────────────────────── -->
+    <section id="clmax-capping">
+      <h2>Sectional CLmax (Stall Capping)</h2>
+
+      <p>
+        OpenAVL can limit sectional lift on each wing before forces are integrated.
+        Set <code>clmax</code> on a <code>Wing</code> to the maximum local lift coefficient
+        you expect that surface to sustain in attached flow. When any spanwise strip exceeds
+        this value during a solve, its sectional forces and moments are scaled down so that
+        the local lift coefficient equals <code>clmax</code>, while preserving force direction.
+      </p>
+
+      <p>
+        This is an <strong>OpenAVL extension</strong>: it is available only through the
+        <a href="#geometry-api">Geometry API</a>. Legacy <code>.avl</code> files do not
+        define <code>clmax</code>, so surfaces loaded from files behave as if
+        <code>clmax = 0</code> (capping disabled).
+      </p>
+
+      <pre><code>wing = ac.add_wing(<span class="st">"Wing"</span>, n_chord=<span class="nm">8</span>, n_span=<span class="nm">16</span>)
+wing.clmax = <span class="nm">1.0</span>   <span class="cm"># 0.0 = disabled (default)</span>
+
+solver = AVLSolver(ac, alpha=<span class="nm">12.0</span>)
+solver.execute_run()
+
+<span class="cm"># Inspect capped strip lift (local lift coefficient per strip)</span>
+j0 = <span class="fn">int</span>(solver.state.jfrst[<span class="nm">0</span>])
+nj = <span class="fn">int</span>(solver.state.nj[<span class="nm">0</span>])
+cl_local = solver.state.cl_lstrp[j0 : j0 + nj]
+<span class="fn">print</span>(cl_local.max())   <span class="cm"># &lt;= clmax when capping is active</span></code></pre>
+
+      <h3>Behavior</h3>
+      <ul>
+        <li>
+          Capping uses <code>cl_lstrp</code>, the local lift coefficient at each strip computed
+          in the strip's local lift direction (including dihedral via the strip normal).
+        </li>
+        <li>
+          When <code>cl_lstrp[j] &gt; clmax</code>, all strip force and moment components
+          (<code>cfstrp</code>, <code>clstrp</code>, <code>cdstrp</code>, <code>cystrp</code>,
+          <code>cmstrp</code>, and related local coefficients) are multiplied by
+          <code>clmax / cl_lstrp[j]</code>.
+        </li>
+        <li>
+          Integrated total <code>CL</code>, <code>CD</code>, and moments reflect the reduced
+          sectional loads. Trefftz-plane far-field analysis is unchanged (it uses circulation
+          directly, not the capped strip forces).
+        </li>
+        <li>
+          Stability-derivative sensitivities for stalled strips are not scaled; post-stall
+          linear derivatives are not meaningful in a VLM context.
+        </li>
+      </ul>
+
+      <h3>Solver output</h3>
+      <p>
+        When capping is applied during <code>execute_run()</code>, OpenAVL prints one message
+        per affected surface per solve, for example:
+      </p>
+      <pre><code>Local Cl &gt; Clmax (1.000) on Wing: Clipping sectional lift force</code></pre>
+
+      <div class="callout callout-warn">
+        <strong>Limitation</strong>
+        Sectional CLmax capping is a simple magnitude limit, not a full stall model.
+        It does not modify circulation or predict separated flow; use it as a practical
+        estimate of how limiting peak sectional lift affects integrated aerodynamics.
+      </div>
+    </section>
+
+    <hr />
+
+    <!-- ─── AVL FORMAT ────────────────────────────────────── -->
+    <section id="avl-format">
+      <h2>AVL Geometry Format</h2>
+
+      <p>
+        OpenAVL reads the same <code>.avl</code> text format as the original Fortran code.
+        This section summarizes the key keywords. For full details refer to the original
+        <a href="https://web.mit.edu/drela/Public/web/avl/avl_doc.txt">AVL documentation by Drela &amp; Youngren</a>.
+      </p>
+
+      <h3>File structure overview</h3>
+      <pre><code><span class="cm"># Line 1: Case name</span>
+My Aircraft
+
+<span class="cm"># Line 2: Mach, iYsym, iZsym, Zsym</span>
+<span class="nm">0.0</span>     <span class="nm">1</span>    <span class="nm">0</span>    <span class="nm">0.0</span>
+
+<span class="cm"># Line 3: Sref, Cref, Bref (reference area, chord, span)</span>
+<span class="nm">0.544</span>  <span class="nm">0.226</span>  <span class="nm">2.41</span>
+
+<span class="cm"># Line 4: Xref, Yref, Zref (moment reference point)</span>
+<span class="nm">0.0</span>   <span class="nm">0.0</span>   <span class="nm">0.0</span>
+
+<span class="cm"># Line 5 (optional): CDp (profile drag)</span>
+<span class="nm">0.00</span>
+
+<span class="cm">#===================================</span>
+SURFACE
+Wing
+<span class="nm">10</span>  <span class="nm">1.0</span>   <span class="nm">0</span>  <span class="nm">1.0</span>   <span class="cm"># Nchord, Cspace, Nspan (optional), Sspace</span>
+
+YDUPLICATE
+<span class="nm">0.0</span>                       <span class="cm"># Mirror about y=0</span>
+
+SECTION
+<span class="cm">#  Xle   Yle    Zle   Chord  Ainc  Nspan  Sspace</span>
+   <span class="nm">0.0</span>   <span class="nm">0.0</span>   <span class="nm">0.0</span>   <span class="nm">0.226</span>  <span class="nm">0.0</span>
+
+NACA
+<span class="nm">2412</span>                      <span class="cm"># NACA airfoil for this section</span>
+
+SECTION
+   <span class="nm">0.12</span>  <span class="nm">1.2</span>   <span class="nm">0.0</span>   <span class="nm">0.135</span>  <span class="nm">0.0</span>
+
+NACA
+<span class="nm">2412</span></code></pre>
+
+      <h3>Key keywords</h3>
+      <table>
+        <thead><tr><th>Keyword</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>SURFACE</code></td><td>Begin a new lifting surface definition.</td></tr>
+          <tr><td><code>SECTION</code></td><td>Define a cross-section at a spanwise station (leading edge location, chord, incidence).</td></tr>
+          <tr><td><code>NACA</code></td><td>Apply a 4-digit NACA airfoil to the current section.</td></tr>
+          <tr><td><code>AFILE</code></td><td>Load an external airfoil coordinate file for the current section.</td></tr>
+          <tr><td><code>CONTROL</code></td><td>Define a control surface hinge on the current section. Format: <code>name gain Xhinge Xvec Yvec Zvec SgnDup</code></td></tr>
+          <tr><td><code>YDUPLICATE</code></td><td>Mirror the current surface about the specified y-plane (typically <code>0.0</code> for a symmetric aircraft).</td></tr>
+          <tr><td><code>SCALE</code></td><td>Apply uniform scaling factors (Sx Sy Sz) to the surface.</td></tr>
+          <tr><td><code>TRANSLATE</code></td><td>Translate the surface by (dX dY dZ).</td></tr>
+          <tr><td><code>ANGLE</code></td><td>Rotate the surface by a given incidence angle increment.</td></tr>
+          <tr><td><code>COMPONENT</code></td><td>Group surfaces that share a vortex wake component.</td></tr>
+          <tr><td><code>CDCL</code></td><td>Specify a piecewise-quadratic CD(CL) polar for viscous drag estimation (three anchor points).</td></tr>
+          <tr><td><code>BODY</code></td><td>Define a fuselage body using source/doublet singularities.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Header symmetry flags</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Value</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td rowspan="3"><code>iYsym</code></td><td>0</td><td>No symmetry</td></tr>
+          <tr><td>1</td><td>Symmetric about y = 0 (typical for symmetric aircraft)</td></tr>
+          <tr><td>-1</td><td>Anti-symmetric about y = 0</td></tr>
+          <tr><td rowspan="3"><code>iZsym</code></td><td>0</td><td>No z-symmetry</td></tr>
+          <tr><td>1</td><td>Symmetric about z = Zsym plane</td></tr>
+          <tr><td>-1</td><td>Anti-symmetric about z = Zsym plane</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── MASS FORMAT ───────────────────────────────────── -->
+    <section id="mass-format">
+      <h2>Mass File Format</h2>
+
+      <p>
+        An optional <code>.mass</code> file can be supplied to the <code>AVLSolver</code>
+        constructor to specify mass and inertia properties. The format mirrors the original
+        AVL mass file convention.
+      </p>
+
+      <pre><code><span class="cm">#  mass file for My Aircraft</span>
+<span class="cm">#  units: kg, m</span>
+
+Lunit = <span class="nm">1.0</span> m
+Munit = <span class="nm">1.0</span> kg
+Tunit = <span class="nm">1.0</span> s
+
+<span class="cm">#          x       y       z      mass</span>
+<span class="cm">#  name</span>
+body        <span class="nm">0.30</span>  <span class="nm">0.00</span>  <span class="nm">0.00</span>   <span class="nm">0.450</span>
+
+<span class="cm"># Total mass and inertia tensor:</span>
+mass  = <span class="nm">0.450</span>
+Ixx   = <span class="nm">0.010</span>
+Iyy   = <span class="nm">0.008</span>
+Izz   = <span class="nm">0.015</span>
+Ixy   = <span class="nm">0.000</span>
+Ixz   = <span class="nm">0.001</span>
+Iyz   = <span class="nm">0.000</span></code></pre>
+
+      <div class="callout callout-info">
+        <strong>Note</strong>
+        When a <code>.mass</code> file is supplied to <code>AVLSolver</code>, mass, CG,
+        inertia tensor, and unit conversions are loaded into the solver state and used by
+        <code>setup_trim()</code> and <code>eigenvalues()</code>. Constructor keyword
+        arguments for flow parameters (<code>rho</code>, <code>vel</code>, <code>xcg</code>,
+        etc.) are reapplied after mass-file defaults.
+      </div>
+    </section>
+
+    <hr />
+
+    <!-- ─── PARSER API ────────────────────────────────────── -->
+    <section id="parser">
+      <h2>Parser API</h2>
+
+      <p>
+        The parser module is used internally by <code>AVLSolver</code>, but you can call it
+        directly if you need access to the parsed geometry data structure.
+      </p>
+
+      <pre><code><span class="kw">from</span> openavl.fileio.parser <span class="kw">import</span> parse_avl_file, parse_avl, prepare_model
+<span class="cm"># or: from openavl import parse_avl_file, parse_avl</span>
+
+<span class="cm"># Parse from file</span>
+model = parse_avl_file(<span class="st">"path/to/plane.avl"</span>)
+
+<span class="cm"># Parse from a string</span>
+model = parse_avl(avl_text_string)
+
+<span class="cm"># Resolve AFILE paths relative to a base directory</span>
+model = prepare_model(model, base_dir=<span class="st">"path/to/"</span>)</code></pre>
+
+      <h3>AVLModel attributes</h3>
+      <table>
+        <thead><tr><th>Attribute</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>header</code></td><td><code>AVLHeader</code></td><td>Case name, reference quantities, symmetry flags, Mach, CDp.</td></tr>
+          <tr><td><code>surfaces</code></td><td><code>list[AVLSurface]</code></td><td>All <code>SURFACE</code> blocks with their sections and controls.</td></tr>
+          <tr><td><code>bodies</code></td><td><code>list[AVLBody]</code></td><td>All <code>BODY</code> blocks.</td></tr>
+          <tr><td><code>control_map</code></td><td><code>dict[str, int]</code></td><td>Maps control name &rarr; internal index.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── AVLSTATE ─────────────────────────────────────── -->
+    <section id="avlstate">
+      <h2>AVLState</h2>
+
+      <p>
+        <code>AVLState</code> (in <code>openavl.core.state</code>) is a dataclass
+        that holds every NumPy array the solver needs. It replaces the COMMON blocks from the
+        Fortran source.
+      </p>
+
+      <p>
+        You generally interact with <code>AVLState</code> through the <code>AVLSolver</code> wrapper.
+        Direct access is available via <code>solver.state</code> when you need raw array data, for
+        example to extract per-strip forces or stability derivative matrices after a solve.
+      </p>
+
+      <h3>Commonly accessed state fields</h3>
+      <table>
+        <thead><tr><th>Field</th><th>Shape</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>alfa</code></td><td>scalar</td><td>Angle of attack in <strong>radians</strong>.</td></tr>
+          <tr><td><code>beta</code></td><td>scalar</td><td>Sideslip angle in <strong>radians</strong>.</td></tr>
+          <tr><td><code>mach</code></td><td>scalar</td><td>Freestream Mach number.</td></tr>
+          <tr><td><code>cltot</code></td><td>scalar</td><td>Total CL after solve.</td></tr>
+          <tr><td><code>cdtot</code></td><td>scalar</td><td>Total CD after solve.</td></tr>
+          <tr><td><code>cytot</code></td><td>scalar</td><td>Total CY after solve.</td></tr>
+          <tr><td><code>cmtot</code></td><td>(3,)</td><td>Rolling, pitching, yawing moment coefficients.</td></tr>
+          <tr><td><code>clff</code></td><td>scalar</td><td>Far-field CL (Trefftz plane).</td></tr>
+          <tr><td><code>cdff</code></td><td>scalar</td><td>Far-field induced drag.</td></tr>
+          <tr><td><code>spanef</code></td><td>scalar</td><td>Span efficiency factor.</td></tr>
+          <tr><td><code>gam</code></td><td>(NVOR,)</td><td>Circulation on each vortex panel.</td></tr>
+          <tr><td><code>delcon</code></td><td>(NDCON,)</td><td>Control surface deflections (radians).</td></tr>
+          <tr><td><code>clmax_surf</code></td><td>(NSURF,)</td><td>Per-surface CLmax limit from <code>Wing.clmax</code> (0 = disabled).</td></tr>
+          <tr><td><code>cl_lstrp</code></td><td>(NSTRIP,)</td><td>Local lift coefficient per strip; capped when <a href="#clmax-capping">CLmax</a> is active.</td></tr>
+          <tr><td><code>lsol</code></td><td>bool</td><td><code>True</code> if the last solve converged.</td></tr>
+          <tr><td><code>dtr</code></td><td>scalar</td><td>Degrees-to-radians conversion factor (pi/180).</td></tr>
+        </tbody>
+      </table>
+
+      <div class="callout callout-warn">
+        <strong>Warning</strong>
+        Angle fields in <code>AVLState</code> (e.g., <code>alfa</code>, <code>beta</code>) are
+        always in <strong>radians</strong>. The <code>AVLSolver</code> methods accept and return
+        degrees for convenience.
+      </div>
+
+      <h3>Creating AVLState directly</h3>
+      <pre><code><span class="kw">from</span> openavl.core.state <span class="kw">import</span> AVLState
+<span class="kw">from</span> openavl.fileio.parser <span class="kw">import</span> parse_avl_file, prepare_model
+
+model = prepare_model(parse_avl_file(<span class="st">"plane.avl"</span>))
+state = AVLState.from_model(model)</code></pre>
+    </section>
+
+    <!-- ─── MODULES ───────────────────────────────────────── -->
+    <section id="modules">
+      <h2>Module Reference</h2>
+
+      <p>Package layout under <code>src/</code> (installed as the <code>openavl</code> package). Legacy top-level modules re-export from these packages.</p>
+
+      <table>
+        <thead><tr><th>Package / module</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>core/solver.py</code></td><td>High-level <code>AVLSolver</code> API &mdash; start here.</td></tr>
+          <tr><td><code>core/state.py</code></td><td><code>AVLState</code> dataclass; allocates all solver arrays.</td></tr>
+          <tr><td><code>core/exec.py</code></td><td>Newton constraint solver loop.</td></tr>
+          <tr><td><code>core/setup.py</code></td><td>Circulation and velocity sensitivities.</td></tr>
+          <tr><td><code>geom/geometry.py</code></td><td>Vortex-lattice mesh builder (internal).</td></tr>
+          <tr><td><code>geometry/</code></td><td>User-facing Geometry API: <code>Aircraft</code>, <code>Wing</code>, <code>CdclPolar</code>, etc.</td></tr>
+          <tr><td><code>aero/</code></td><td>AIC assembly, force integration, Trefftz plane, CD(CL), vortex kernels.</td></tr>
+          <tr><td><code>fileio/parser.py</code></td><td>Parses <code>.avl</code> geometry files into <code>AVLModel</code>.</td></tr>
+          <tr><td><code>fileio/mass.py</code></td><td>Parses <code>.mass</code> files; loads inertia into solver state.</td></tr>
+          <tr><td><code>analysis/deriv.py</code></td><td><code>StabilityDerivatives</code> and <code>BodyAxisDerivatives</code> extraction; see <a href="#derivative-axes">Derivative coordinate systems</a>.</td></tr>
+          <tr><td><code>analysis/trim.py</code></td><td><code>setup_trim()</code> presets for level flight and pull-ups.</td></tr>
+          <tr><td><code>analysis/amode.py</code></td><td>Linearized eigenanalysis (<code>eigenvalues()</code>).</td></tr>
+          <tr><td><code>plotting/aircraft3d.py</code></td><td>Matplotlib 3D geometry visualization (<code>plot_aircraft_3d</code>; called by <code>AVLSolver.plot_aircraft()</code>).</td></tr>
+          <tr><td><code>plotting/lift_distribution.py</code></td><td>Spanwise lift distribution plots (<code>plot_lift_distribution</code>, <code>collect_lift_distribution</code>).</td></tr>
+          <tr><td><code>plotting/cp_plot.py</code></td><td>Pressure-coefficient surface plots (<code>plot_cp</code>, <code>collect_cp_surfaces</code>).</td></tr>
+          <tr><td><code>math/linalg.py</code></td><td>LU decomposition and back-substitution.</td></tr>
+          <tr><td><code>constants.py</code></td><td>Dimension limits and index constants.</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─── TESTING ───────────────────────────────────────── -->
+    <section id="testing">
+      <h2>Running Tests</h2>
+
+      <h3>Run all tests</h3>
+      <pre><code>pytest tests/</code></pre>
+
+      <h3>Run by category</h3>
+      <pre><code><span class="cm"># Core unit and module tests</span>
+pytest tests/core
+pytest -m core
+
+<span class="cm"># Full end-to-end integration solves</span>
+pytest tests/integration
+pytest -m integration
+
+<span class="cm"># Web UI session and export helpers</span>
+pytest tests/ui
+pytest -m ui
+
+<span class="cm"># JAX differentiable backend (requires .[jax])</span>
+pytest tests/jax_backend
+
+<span class="cm"># All numerically validated tests (Fortran or AVL run-case refs)</span>
+pytest -m reference</code></pre>
+
+      <h3>Run a specific test file</h3>
+      <pre><code>pytest tests/integration/test_circle.py -v</code></pre>
+
+      <h3>Test markers</h3>
+      <table>
+        <thead><tr><th>Marker</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>core</code></td><td>Unit and module tests for solver internals and APIs (geometry, aero kernels, linear algebra, trim, etc.).</td></tr>
+          <tr><td><code>integration</code></td><td>Full end-to-end <code>AVLSolver</code> runs on real <code>.avl</code> geometries.</td></tr>
+          <tr><td><code>ui</code></td><td>Web GUI session state, AFIL uploads, and 3D/Trefftz export payloads.</td></tr>
+          <tr><td><code>reference</code></td><td>Numerically validated against Fortran reference binaries or AVL run-case outputs within tight tolerances.</td></tr>
+          <tr><td><code>fixture</code></td><td>Validated against stored JSON fixtures (JavaScript port golden values).</td></tr>
+          <tr><td><code>smoke</code></td><td>Quick convergence or structural checks without tight reference tolerances.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Test layout</h3>
+      <pre><code>tests/
+├── core/           # unit and module tests
+├── integration/    # end-to-end solver runs (b737, supra, circle, …)
+├── ui/             # web session and export helpers
+├── jax_backend/
+│   ├── core/       # JAX kernels vs NumPy parity
+│   └── integration/ # run_analysis, AD validation, OpenMDAO
+├── data/avl/       # reference geometries, mass files, Fortran binaries
+└── fixtures/       # JSON golden fixtures</code></pre>
+
+      <h3>Test geometries</h3>
+      <p>
+        Over 50 reference <code>.avl</code> files are included under
+        <code>tests/data/avl/geometries/</code>, including:
+      </p>
+      <ul>
+        <li><code>plane.avl</code> &mdash; simple generic aircraft (primary validation model)</li>
+        <li><code>b737.avl</code> &mdash; Boeing 737 approximation</li>
+        <li><code>supra.avl</code> &mdash; Supra 3.4&nbsp;m F3J sailplane</li>
+        <li><code>circle.avl</code>, <code>square.avl</code>, <code>w.avl</code> &mdash; academic test shapes</li>
+        <li><code>bd.avl</code> &mdash; blended disc</li>
+        <li><code>allegro.avl</code>, <code>greff.avl</code> &mdash; research configurations</li>
+      </ul>
+
+      <h3>Fortran reference binaries</h3>
+      <p>
+        Compiled Fortran executables in <code>tests/data/avl/ref/</code> are used by the
+        <code>reference</code> tests to produce ground-truth values. These run the original AVL algorithm and
+        compare outputs to the Python port.
+      </p>
+    </section>
+
+
+    <hr />
+
+    <p style="color: var(--text-dim); font-size: 0.8rem; text-align: center; padding-bottom: 40px;">
+      OpenAVL User Manual &mdash; Updated 2026-06-21.
+      Based on AVL by Mark Drela &amp; Harold Youngren (MIT).
+    </p>
+
+  </main>
+</div>
+
+</body>
+</html>

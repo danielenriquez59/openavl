@@ -1,0 +1,17 @@
+{
+  "plane": {
+    "nvor": 56,
+    "nstrip": 56,
+    "nsurf": 5,
+    "nbody": 0,
+    "nlnode": 0
+  },
+  "supra": {
+    "nvor": 604,
+    "nstrip": 88,
+    "nsurf": 7,
+    "nbody": 1,
+    "nlnode": 28,
+    "body_nl": 28
+  }
+}

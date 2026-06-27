@@ -1,0 +1,23 @@
+# Python
+._*
+*.pyc
+__pycache__/
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# Testing / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OpenMDAO problem output (e.g. from examples/omdao_hershey_chord_opt.py)
+*_out/
+

@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openavl"
+version = "0.1.0"
+description = "Numerically faithful Python port of AVL vortex lattice code"
+readme = "README.md"
+license = { text = "GPL-2.0-or-later" }
+requires-python = ">=3.10"
+authors = [
+    { name = "danielenriquez59", email = "deenriquez92@gmail.com" },
+]
+dependencies = [
+    "numpy>=2.4; python_version>='3.11'",
+    "numpy>=1.24,<2.3; python_version<'3.11'",
+    "scipy>=1.17; python_version>='3.11'",
+    "scipy>=1.10,<1.16; python_version<'3.11'",
+    "matplotlib>=3.7",
+    "numba>=0.65",
+]
+
+[project.urls]
+Homepage = "https://github.com/danielenriquez59/openavl"
+Repository = "https://github.com/danielenriquez59/openavl"
+Issues = "https://github.com/danielenriquez59/openavl/issues"
+Documentation = "https://github.com/danielenriquez59/openavl/blob/master/docs/user_manual.html"
+
+[project.optional-dependencies]
+jax = ["jax>=0.4.20", "jaxlib>=0.4.20"]
+jax-cuda12 = ["jax[cuda12]>=0.4.20"]
+dev = ["pytest>=7.0"]
+web = [
+    "fastapi>=0.100",
+    "uvicorn[standard]>=0.23",
+    "python-multipart>=0.0.6",
+]
+
+[tool.setuptools]
+package-dir = { "openavl" = "src" }
+packages = [
+    "openavl",
+    "openavl.aero",
+    "openavl.analysis",
+    "openavl.core",
+    "openavl.fileio",
+    "openavl.geom",
+    "openavl.geometry",
+    "openavl.jax",
+    "openavl.math",
+    "openavl.plotting",
+    "openavl.web",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "core: unit and module tests for solver internals and APIs",
+    "integration: full end-to-end AVLSolver runs on real geometries",
+    "ui: web GUI session and export helpers",
+    "reference: numerically validated against Fortran binaries or AVL run-case outputs",
+    "fixture: validated against stored JSON fixtures",
+    "smoke: quick convergence or structural checks without tight reference tolerances",
+]

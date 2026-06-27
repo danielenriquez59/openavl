@@ -1,0 +1,119 @@
+"""AVL dimension and index constants (from ADIMEN.INC and AINDEX.INC, 0-based)."""
+
+# Primary array limits (ADIMEN.INC)
+NVMAX = 5000
+NSMAX = 500
+NFMAX = 100
+NLMAX = 500
+NBMAX = 20
+NUMAX = 6
+NDMAX = 30
+NGMAX = 20
+NRMAX = 25
+NTMAX = 500
+NOBMAX = 1000
+
+# Variable indices (AINDEX.INC, shifted to 0-based)
+IVALFA = 0
+IVBETA = 1
+IVROTX = 2
+IVROTY = 3
+IVROTZ = 4
+IVTOT = 5
+
+# Constraint indices (0-based)
+ICALFA = 0
+ICBETA = 1
+ICROTX = 2
+ICROTY = 3
+ICROTZ = 4
+ICCL = 5
+ICCY = 6
+ICMOMX = 7
+ICMOMY = 8
+ICMOMZ = 9
+ICTOT = 10
+
+# Run-case dimensional parameter indices (0-based)
+IPALFA = 0
+IPBETA = 1
+IPROTX = 2
+IPROTY = 3
+IPROTZ = 4
+IPCL = 5
+IPCD0 = 6
+IPPHI = 7
+IPTHE = 8
+IPPSI = 9
+IPMACH = 10
+IPVEE = 11
+IPRHO = 12
+IPGEE = 13
+IPRAD = 14
+IPFAC = 15
+IPXCG = 16
+IPYCG = 17
+IPZCG = 18
+IPMASS = 19
+IPIXX = 20
+IPIYY = 21
+IPIZZ = 22
+IPIXY = 23
+IPIYZ = 24
+IPIZX = 25
+IPCLA = 26
+IPCLU = 27
+IPCMA = 28
+IPCMU = 29
+IPTOT = 30
+
+# Eigenmode variable indices (0-based)
+JEU = 0
+JEW = 1
+JEQ = 2
+JETH = 3
+JEV = 4
+JEP = 5
+JER = 6
+JEPH = 7
+JEX = 8
+JEY = 9
+JEZ = 10
+JEPS = 11
+JETOT = 12
+
+# Time-trace parameter indices (0-based)
+KPBANK = 0
+KPELEV = 1
+KPHEAD = 2
+KPVINF = 3
+KPALFA = 4
+KPBETA = 5
+KPCLIF = 6
+KPCDRG = 7
+KPCDIN = 8
+KPCMOM = 9
+KPLIFT = 10
+KPDRAG = 11
+KPMACH = 12
+KPALTK = 13
+KPDENS = 14
+KPVSOU = 15
+KPLOAD = 16
+KPTOT = 17
+
+KPVAC = 0
+KPRAC = 1
+KPVEL = 2
+KPROT = 3
+KPPOS = 4
+KPFOR = 5
+KPMOM = 6
+KPVTOT = 7
+
+# Derived limits (AVL.INC)
+ITMAX = 2 * NVMAX
+IVMAX = IVTOT + NDMAX
+ICMAX = ICTOT + NDMAX
+IPMAX = IPTOT
+JEMAX = JETOT

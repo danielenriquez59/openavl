@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="OpenAVL">
+  <title>OpenAVL</title>
+  <rect width="32" height="32" rx="6" fill="#0c0f14"/>
+  <g fill="#7fb3ff">
+    <path d="M5 15.5 8 12.5v7L5 16.5v-1z"/>
+    <path d="M6 15.25h1.75v1.5H6z"/>
+    <path d="M8 15.25 24 14.25v3.5L8 16.75z"/>
+    <path d="M24 14.25 30 16l-6 1.75z"/>
+    <path d="M12 8.5 20 13.5v5L12 23.5z"/>
+  </g>
+</svg>

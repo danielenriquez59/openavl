@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <title>OpenAVL Web</title>
+  <style>
+    :root {
+      --canvas: #0a0d12;
+      --bg: #0d1117;
+      --panel: #111821;
+      --panel-raised: #151d28;
+      --ink: #e8edf2;
+      --ink-muted: #9aa7b5;
+      --accent: #7fb3ff;
+      --edge: #1f242c;
+      --edge-light: #2a313c;
+      --good: #6fcf97;
+      --warn: #f2c94c;
+      --bad: #eb5757;
+      --tab10-1: #1f77b4;
+      --tab10-2: #ff7f0e;
+      --tab10-3: #2ca02c;
+      --tab10-4: #d62728;
+      --tab10-5: #9467bd;
+      --tab10-6: #8c564b;
+      --radius: 10px;
+      --font-mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      --font-sans: "Segoe UI", system-ui, -apple-system, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.4;
+    }
+
+    #app {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 100vh;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.65rem 1rem;
+      background: var(--panel);
+      box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
+      flex-shrink: 0;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      background: var(--panel-raised);
+      border: 1px solid var(--edge);
+      color: var(--ink-muted);
+    }
+
+    .status-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ink-muted);
+    }
+
+    .status-pill.connected .dot { background: var(--good); }
+    .status-pill.solving .dot { background: var(--warn); animation: pulse 0.8s ease infinite alternate; }
+    .status-pill.error .dot { background: var(--bad); }
+
+    @keyframes pulse {
+      from { opacity: 0.4; }
+      to { opacity: 1; }
+    }
+
+    #error-banner {
+      display: none;
+      margin-left: auto;
+      max-width: 50%;
+      padding: 0.35rem 0.75rem;
+      background: rgba(235, 87, 87, 0.15);
+      border: 1px solid var(--bad);
+      border-radius: var(--radius);
+      color: #ffb4b4;
+      font-size: 0.8rem;
+    }
+
+    #error-banner.visible { display: block; }
+
+    #layout {
+      display: grid;
+      grid-template-columns: minmax(16rem, 1.15fr) minmax(30rem, 2.25fr) minmax(22rem, 1.85fr);
+      align-items: start;
+      gap: 1rem;
+      width: 100%;
+      padding: 1rem;
+    }
+
+    .column {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      min-width: 0;
+    }
+
+    .column-left, .column-right {
+      background: transparent;
+    }
+
+    .column-right {
+      border-left: none;
+    }
+
+    .column-center {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      min-width: 0;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--edge);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.55rem 0.8rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--accent);
+      background: var(--panel-raised);
+      border-bottom: 1px solid var(--edge);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .panel-header-title {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .panel-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-shrink: 0;
+    }
+
+    .panel-header-actions select {
+      padding: 0.12rem 0.3rem;
+      background: var(--bg);
+      border: 1px solid var(--edge-light);
+      border-radius: 3px;
+      color: var(--ink);
+      font-size: 0.68rem;
+      font-family: var(--font-mono);
+      text-transform: none;
+      letter-spacing: 0;
+      cursor: pointer;
+    }
+
+    .panel-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 1rem;
+      height: 1rem;
+      color: var(--ink-muted);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .panel.collapsed .panel-toggle {
+      transform: rotate(-90deg);
+    }
+
+    .panel.collapsed .panel-body,
+    .panel.collapsed .panel-collapsible {
+      display: none;
+    }
+
+    .panel-header:hover .panel-toggle {
+      color: var(--accent);
+    }
+
+    .panel-body {
+      padding: 0.8rem;
+    }
+
+    input:not([type="color"]),
+    select,
+    textarea {
+      background: var(--bg);
+      border: 1px solid var(--edge-light);
+      border-radius: 5px;
+      color: var(--ink);
+      font-family: var(--font-mono);
+      padding: 0.38rem 0.5rem;
+    }
+
+    textarea {
+      width: 100%;
+      resize: vertical;
+    }
+
+    input:not([type="color"]):focus,
+    select:focus,
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.45rem 0.75rem;
+      align-items: center;
+      margin-bottom: 0.55rem;
+    }
+
+    .form-row label {
+      color: var(--ink-muted);
+      font-size: 0.78rem;
+    }
+
+    .form-row input,
+    .form-row select,
+    .form-row textarea {
+      width: 100%;
+      font-size: 0.82rem;
+    }
+
+    .form-row input:focus,
+    .form-row select:focus,
+    .form-row textarea:focus {
+      border-color: var(--accent);
+    }
+
+    .form-row.full { grid-template-columns: 1fr; }
+    .form-row.full label { margin-bottom: 0.15rem; }
+
+    button, .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.35rem;
+      padding: 0.42rem 0.7rem;
+      background: var(--panel-raised);
+      border: 1px solid var(--edge-light);
+      border-radius: 4px;
+      color: var(--ink);
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    button:hover, .btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    button:disabled, .btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    button.primary {
+      background: rgba(127, 179, 255, 0.12);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .meta-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.25rem 0.75rem;
+      font-size: 0.78rem;
+      color: var(--ink-muted);
+    }
+
+    .meta-grid span.value {
+      color: var(--ink);
+      font-family: var(--font-mono);
+      text-align: right;
+    }
+
+    #viewer3d {
+      width: 100%;
+      height: clamp(420px, 48vh, 620px);
+      min-height: 420px;
+      background: var(--canvas);
+      border-radius: var(--radius);
+      position: relative;
+    }
+
+    .viewer-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #viewer3d canvas { display: block; border-radius: var(--radius); }
+
+    .viewer-overlay {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      gap: 0.35rem;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .viewer-overlay button {
+      pointer-events: auto;
+      padding: 0.25rem 0.55rem;
+      font-size: 0.72rem;
+      background: rgba(15, 17, 21, 0.82);
+      border-color: var(--edge-light);
+      backdrop-filter: blur(4px);
+    }
+
+    .viewer-overlay button.active {
+      background: rgba(34, 197, 94, 0.18);
+      border-color: #22c55e;
+      color: #86efac;
+    }
+
+    .viewer-overlay button[data-overlay="cg"].active {
+      background: rgba(242, 201, 76, 0.18);
+      border-color: #f2c94c;
+      color: #fde68a;
+    }
+
+    .viewer-overlay-views {
+      top: auto;
+      right: auto;
+      bottom: 8px;
+      left: 8px;
+    }
+
+    .viewer-overlay-views button {
+      min-width: 2.1rem;
+      font-family: var(--font-mono);
+    }
+
+    .plots-row {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      min-height: 0;
+    }
+
+    .plot-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .plot-container {
+      flex: 1;
+      min-height: 250px;
+      height: 250px;
+    }
+
+    .total-forces-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.15rem 0.5rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    .total-forces-grid .force-cell {
+      white-space: nowrap;
+      color: var(--ink-muted);
+    }
+
+    .total-forces-grid .force-cell strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .total-forces-grid .r1 { grid-row: 1; }
+    .total-forces-grid .r2 { grid-row: 2; }
+    .total-forces-grid .r3 { grid-row: 3; }
+    .total-forces-grid .r4 { grid-row: 4; }
+    .total-forces-grid .r5 { grid-row: 5; }
+    .total-forces-grid .r6 { grid-row: 6; }
+    .total-forces-grid .c1 { grid-column: 1; }
+    .total-forces-grid .c2 { grid-column: 2; }
+    .total-forces-grid .c3 { grid-column: 3; }
+    .total-forces-grid .c4 { grid-column: 4; }
+
+    .body-deriv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+    }
+
+    .body-deriv-table th,
+    .body-deriv-table td {
+      padding: 0.12rem 0.2rem;
+      text-align: right;
+      border-bottom: 1px solid var(--edge);
+    }
+
+    .body-deriv-table th:first-child,
+    .body-deriv-table td:first-child {
+      text-align: left;
+      color: var(--ink-muted);
+    }
+
+    .body-deriv-table th {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .body-deriv-table td.value {
+      font-weight: 600;
+    }
+
+    #avl-editor {
+      min-height: 200px;
+      height: 100%;
+      resize: vertical;
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      line-height: 1.35;
+      tab-size: 2;
+    }
+
+    #mass-editor {
+      min-height: 10rem;
+    }
+
+    .editor-panel {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .editor-panel .panel-body {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .output-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.2rem 0.75rem;
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    .output-grid .label { color: var(--ink-muted); }
+    .output-grid .value { text-align: right; }
+
+    .deriv-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    .deriv-table th,
+    .deriv-table td {
+      padding: 0.15rem 0.25rem;
+      text-align: right;
+      border-bottom: 1px solid var(--edge);
+    }
+
+    .deriv-table th:first-child,
+    .deriv-table td:first-child {
+      text-align: left;
+      color: var(--ink-muted);
+    }
+
+    .deriv-table th {
+      color: var(--accent);
+      font-weight: 500;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 0.2rem 0.3rem;
+      text-align: right;
+      border-bottom: 1px solid var(--edge);
+    }
+
+    .data-table th:first-child,
+    .data-table td:first-child { text-align: left; }
+
+    .data-table th {
+      color: var(--ink-muted);
+      font-weight: 500;
+    }
+
+    #surface-forces-table {
+      width: auto;
+      min-width: 40rem;
+    }
+
+    #surface-forces-table th:first-child,
+    #surface-forces-table td:first-child {
+      padding-right: 2rem;
+    }
+
+    #surface-forces-table th:not(:first-child),
+    #surface-forces-table td:not(:first-child) {
+      min-width: 5.5rem;
+    }
+
+    .file-meta {
+      color: var(--ink-muted);
+      font-size: 0.78rem;
+      overflow-wrap: anywhere;
+    }
+
+    .run-cases-panel,
+    .mass-props-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .run-cases-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .run-case-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 0.4rem;
+      align-items: center;
+      padding: 0.55rem 0.65rem;
+      border: 1px solid var(--edge);
+      border-radius: 4px;
+      background: rgba(8, 10, 12, 0.35);
+      cursor: pointer;
+    }
+
+    .run-case-item.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px rgba(127, 179, 255, 0.3);
+    }
+
+    .run-case-title {
+      width: 100%;
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+    }
+
+    .run-case-title:focus {
+      outline: none;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .run-case-color {
+      width: 1.75rem;
+      height: 1.4rem;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .run-case-delete {
+      min-width: 1.75rem;
+      padding: 0.15rem 0.35rem;
+      line-height: 1;
+    }
+
+    .mass-props-grid {
+      display: grid;
+      grid-template-columns: 3.8rem minmax(0, 1fr) minmax(0, 1fr);
+      gap: 0.45rem;
+      align-items: center;
+    }
+
+    .mass-props-head {
+      color: var(--ink-muted);
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      text-align: center;
+      white-space: nowrap;
+    }
+
+    .mass-props-grid .label-text {
+      justify-self: end;
+      color: var(--ink-muted);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+
+    .mass-props-grid input {
+      width: 100%;
+      min-width: 0;
+      padding: 0.22rem 0.3rem;
+      font-family: var(--font-mono);
+      font-size: 0.74rem;
+    }
+
+    .mass-props-grid input[readonly] {
+      color: var(--ink-muted);
+    }
+
+    .matrix-grid {
+      display: grid;
+      gap: 0.25rem 0.55rem;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: clamp(0.62rem, 2.5cqi, 0.78rem);
+      line-height: 1.25;
+    }
+
+    .body-deriv-grid {
+      grid-template-columns: 0.35fr repeat(6, minmax(0, 1fr));
+    }
+
+    .hinge-grid {
+      display: inline-grid;
+      grid-template-columns: max-content max-content max-content;
+      max-width: 100%;
+    }
+
+    .matrix-cell {
+      display: flex;
+      align-items: baseline;
+      gap: 0.35rem;
+      white-space: nowrap;
+      min-width: 0;
+    }
+
+    .matrix-head {
+      color: var(--ink-muted);
+      font-weight: 500;
+    }
+
+    .matrix-colhead {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .matrix-val {
+      color: var(--ink);
+      justify-content: flex-end;
+    }
+
+    .matrix-num {
+      display: inline-block;
+      width: 100%;
+      min-width: 0;
+      text-align: right;
+      color: var(--ink);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      white-space: pre;
+    }
+
+    .constraint-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.8fr auto;
+      gap: 0.4rem;
+      margin-bottom: 0.5rem;
+      align-items: center;
+    }
+
+    .constraint-labels {
+      display: grid;
+      grid-template-columns: 1fr 1fr 0.8fr auto;
+      gap: 0.4rem;
+      margin-bottom: 0.25rem;
+      color: var(--ink-subtle);
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .constraint-row button {
+      padding: 0.2rem 0.4rem;
+      font-size: 0.75rem;
+    }
+
+    .constraint-value {
+      max-width: 5.5rem;
+    }
+
+    .afil-deps-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+    }
+
+    .afil-dep-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 0.35rem;
+      padding: 0.25rem 0;
+      align-items: center;
+      font-size: 0.78rem;
+    }
+
+    .afil-dep-name {
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .afil-dep-status {
+      font-size: 0.72rem;
+      color: var(--ink-muted);
+      white-space: nowrap;
+    }
+
+    .afil-dep-row.missing .afil-dep-name,
+    .afil-dep-row.missing .afil-dep-status,
+    .afil-dep-row.invalid .afil-dep-name,
+    .afil-dep-row.invalid .afil-dep-status {
+      color: var(--bad);
+    }
+
+    .afil-dep-row.ready .afil-dep-status {
+      color: var(--good);
+    }
+
+    .placeholder {
+      color: var(--ink-muted);
+      font-style: italic;
+      font-size: 0.78rem;
+    }
+
+    @media (max-width: 1250px) {
+      #layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        padding: 0.8rem;
+      }
+
+      #viewer3d {
+        height: 360px;
+        min-height: 360px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>OpenAVL</h1>
+      <div id="ws-status" class="status-pill">
+        <span class="dot"></span>
+        <span class="label">Connecting…</span>
+      </div>
+      <div id="error-banner" role="alert"></div>
+    </header>
+
+    <div id="layout">
+      <!-- Left column: inputs -->
+      <aside class="column column-left">
+        <section class="panel" id="panel-aircraft">
+          <div class="panel-header"><span class="panel-header-title">Aircraft</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div class="btn-row">
+              <button type="button" id="btn-load-supra-demo" class="primary">Load Supra Demo</button>
+              <input type="file" id="avl-file-input" accept=".avl,.txt" hidden />
+              <button type="button" id="btn-load-avl-file-aircraft">Load File</button>
+            </div>
+            <div class="meta-grid" id="aircraft-meta">
+              <span>Name</span><span class="value" id="meta-name">—</span>
+              <span>Surfaces</span><span class="value" id="meta-nsurf">—</span>
+              <span>Strips</span><span class="value" id="meta-nstrip">—</span>
+              <span>Vortices</span><span class="value" id="meta-nvor">—</span>
+              <span>Sref</span><span class="value" id="meta-sref">—</span>
+              <span>Cref</span><span class="value" id="meta-cref">—</span>
+              <span>Bref</span><span class="value" id="meta-bref">—</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-afil-deps">
+          <div class="panel-header"><span class="panel-header-title">AFIL File Dependencies</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div id="afil-deps-empty" class="placeholder">No AFIL references in the loaded aircraft.</div>
+            <div id="afil-deps-list" class="afil-deps-list"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-flight">
+          <div class="panel-header"><span class="panel-header-title">Flight Conditions</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body" id="flight-form">
+            <div class="form-row">
+              <label for="fp-velocity">Velocity</label>
+              <input type="number" id="fp-velocity" data-key="velocity" step="any" value="25" />
+            </div>
+            <div class="form-row">
+              <label for="fp-rho">Density ρ</label>
+              <input type="number" id="fp-rho" data-key="rho" step="any" value="1.225" />
+            </div>
+            <div class="form-row">
+              <label for="fp-gravity">Gravity</label>
+              <input type="number" id="fp-gravity" data-key="gravity" step="any" value="9.81" />
+            </div>
+            <div class="form-row">
+              <label for="fp-mass">Mass</label>
+              <input type="number" id="fp-mass" data-key="mass" step="any" value="" placeholder="from file" />
+            </div>
+            <div class="form-row">
+              <label for="fp-cl">CL target</label>
+              <input type="number" id="fp-cl" data-key="cl" step="any" value="0.7" />
+            </div>
+            <div class="form-row">
+              <label for="fp-cd0">CD0</label>
+              <input type="number" id="fp-cd0" data-key="cd0" step="any" value="0.015" />
+            </div>
+            <div class="form-row">
+              <label for="fp-alpha">Alpha (deg)</label>
+              <input type="number" id="fp-alpha" data-key="alpha" step="any" value="" placeholder="trim" />
+            </div>
+            <div class="form-row">
+              <label for="fp-bank">Bank φ (deg)</label>
+              <input type="number" id="fp-bank" data-key="bank" step="any" value="0" />
+            </div>
+            <div class="form-row">
+              <label for="fp-xcg">Xcg</label>
+              <input type="number" id="fp-xcg" data-key="xcg" step="any" value="" placeholder="from mass" />
+            </div>
+            <div class="form-row">
+              <label for="fp-ycg">Ycg</label>
+              <input type="number" id="fp-ycg" data-key="ycg" step="any" value="0" />
+            </div>
+            <div class="form-row">
+              <label for="fp-zcg">Zcg</label>
+              <input type="number" id="fp-zcg" data-key="zcg" step="any" value="0" />
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-constraints">
+          <div class="panel-header"><span class="panel-header-title">Constraints</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div class="constraint-labels" aria-hidden="true"><span>Variable</span><span>Target</span><span>Value</span><span></span></div>
+            <div id="constraints-list"></div>
+            <button type="button" id="btn-add-constraint">+ Add constraint</button>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-run-cases">
+          <div class="panel-header"><span class="panel-header-title">Run Cases</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body run-cases-panel">
+            <div class="file-meta" id="run-cases-meta">No run cases loaded.</div>
+            <div id="run-case-list" class="run-cases-list"></div>
+            <div class="btn-row">
+              <button type="button" id="btn-add-run-case">Add case</button>
+            </div>
+            <textarea id="run-text" rows="3" placeholder="Optional .run file text…" style="display:none;"></textarea>
+          </div>
+        </section>
+
+      </aside>
+
+      <!-- Center column: 3D + plots + editor -->
+      <main class="column-center">
+        <div class="panel viewer-panel">
+          <div class="panel-header"><span class="panel-header-title">3D Viewer</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div id="viewer3d" class="panel-collapsible"></div>
+        </div>
+
+        <div class="plots-row">
+          <section class="panel plot-panel">
+            <div class="panel-header"><span class="panel-header-title">Trefftz Plane</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+            <div id="trefftz-plot" class="plot-container panel-collapsible"></div>
+          </section>
+          <section class="panel plot-panel">
+            <div class="panel-header"><span class="panel-header-title">Eigenmodes</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+            <div id="eigen-plot" class="plot-container panel-collapsible"></div>
+          </section>
+        </div>
+
+        <section class="panel editor-panel">
+          <div class="panel-header"><span class="panel-header-title">AVL Editor</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div class="btn-row">
+              <button type="button" id="btn-upload-avl" class="primary">Run</button>
+              <button type="button" id="btn-load-avl-file">Load File</button>
+            </div>
+            <textarea id="avl-editor" placeholder="AVL geometry text…"></textarea>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-mass">
+          <div class="panel-header"><span class="panel-header-title">Mass Properties</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body mass-props-panel">
+            <div class="btn-row">
+              <input type="file" id="mass-file-input" accept=".mass,.txt" hidden />
+              <button type="button" id="btn-upload-mass" class="primary">Apply Mass File</button>
+              <button type="button" id="btn-load-mass-file">Load File</button>
+            </div>
+            <div class="file-meta" id="mass-props-meta">No mass file loaded.</div>
+            <div class="mass-props-grid" id="mass-props-grid">
+              <div class="mass-props-head"></div>
+              <div class="mass-props-head">Mass file</div>
+              <div class="mass-props-head">Active</div>
+
+              <div class="label-text">Mass</div>
+              <input id="mass-file-mass" type="number" step="any" readonly />
+              <input id="mass-active-mass" data-mass-key="mass" type="number" step="any" />
+
+              <div class="label-text">Xcg</div>
+              <input id="mass-file-xcg" type="number" step="any" readonly />
+              <input id="mass-active-xcg" data-mass-key="xcg" type="number" step="any" />
+
+              <div class="label-text">Ycg</div>
+              <input id="mass-file-ycg" type="number" step="any" readonly />
+              <input id="mass-active-ycg" data-mass-key="ycg" type="number" step="any" />
+
+              <div class="label-text">Zcg</div>
+              <input id="mass-file-zcg" type="number" step="any" readonly />
+              <input id="mass-active-zcg" data-mass-key="zcg" type="number" step="any" />
+
+              <div class="label-text">Ixx</div>
+              <input id="mass-file-ixx" type="number" step="any" readonly />
+              <input id="mass-active-ixx" data-mass-key="ixx" type="number" step="any" />
+
+              <div class="label-text">Iyy</div>
+              <input id="mass-file-iyy" type="number" step="any" readonly />
+              <input id="mass-active-iyy" data-mass-key="iyy" type="number" step="any" />
+
+              <div class="label-text">Izz</div>
+              <input id="mass-file-izz" type="number" step="any" readonly />
+              <input id="mass-active-izz" data-mass-key="izz" type="number" step="any" />
+
+              <div class="label-text">Ixy</div>
+              <input id="mass-file-ixy" type="number" step="any" readonly />
+              <input id="mass-active-ixy" data-mass-key="ixy" type="number" step="any" />
+
+              <div class="label-text">Ixz</div>
+              <input id="mass-file-ixz" type="number" step="any" readonly />
+              <input id="mass-active-ixz" data-mass-key="ixz" type="number" step="any" />
+
+              <div class="label-text">Iyz</div>
+              <input id="mass-file-iyz" type="number" step="any" readonly />
+              <input id="mass-active-iyz" data-mass-key="iyz" type="number" step="any" />
+            </div>
+            <textarea id="mass-editor" rows="5" placeholder="Mass file text (.mass)…"></textarea>
+          </div>
+        </section>
+      </main>
+
+      <!-- Right column: outputs -->
+      <aside class="column column-right">
+        <section class="panel" id="panel-total-forces">
+          <div class="panel-header"><span class="panel-header-title">Total Forces</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div class="total-forces-grid" id="total-forces-grid"></div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-stability">
+          <div class="panel-header">
+            <span class="panel-header-title">Stability Derivatives</span>
+            <span class="panel-header-actions">
+              <select id="deriv-units" title="Angle derivative units for all derivative panels">
+                <option value="per_rad">1/rad</option>
+                <option value="per_deg">1/deg</option>
+              </select>
+              <span class="panel-toggle" aria-hidden="true">▾</span>
+            </span>
+          </div>
+          <div class="panel-body">
+            <div style="overflow-x:auto;">
+              <table class="deriv-table" id="stability-table">
+                <thead>
+                  <tr>
+                    <th></th><th>CL</th><th>CD</th><th>CY</th><th>Cl</th><th>Cm</th><th>Cn</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-body-axis">
+          <div class="panel-header"><span class="panel-header-title">Body Axis Derivatives</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div style="overflow-x:auto;">
+              <div class="matrix-grid body-deriv-grid" id="body-axis-grid">
+                <div class="placeholder">Run solver to populate</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-control-surface">
+          <div class="panel-header"><span class="panel-header-title">Control Surface Derivatives</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div style="overflow-x:auto;">
+              <div class="matrix-grid body-deriv-grid" id="control-surface-grid">
+                <div class="placeholder">Run solver to populate</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-surface-forces">
+          <div class="panel-header"><span class="panel-header-title">Surface Forces</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <table class="data-table" id="surface-forces-table">
+              <thead>
+                <tr><th>Surface</th><th>CL</th><th>CD</th><th>CY</th><th>Cl</th><th>Cm</th><th>Cn</th></tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="7" class="placeholder">—</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-hinge-moments">
+          <div class="panel-header"><span class="panel-header-title">Hinge Moments</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div class="matrix-grid hinge-grid" id="hinge-moments-grid">
+              <div class="placeholder">—</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="panel-eigenanalysis">
+          <div class="panel-header"><span class="panel-header-title">Eigenanalysis</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-body">
+            <div style="overflow-x:auto;">
+              <table class="data-table eigenanalysis-table" id="eigenanalysis-table">
+                <thead>
+                  <tr>
+                    <th>Mode</th>
+                    <th>Real</th>
+                    <th>Imag</th>
+                    <th>Freq (Hz)</th>
+                    <th>T½ (s)</th>
+                    <th>Period (s)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="6" class="placeholder">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
