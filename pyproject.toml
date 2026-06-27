@@ -13,10 +13,8 @@ authors = [
     { name = "danielenriquez59", email = "deenriquez92@gmail.com" },
 ]
 dependencies = [
-    "numpy>=2.4; python_version>='3.11'",
-    "numpy>=1.24,<2.3; python_version<'3.11'",
-    "scipy>=1.17; python_version>='3.11'",
-    "scipy>=1.10,<1.16; python_version<'3.11'",
+    "numpy>=2.4",
+    "scipy>=1.17",
     "matplotlib>=3.7",
     "numba>=0.65",
 ]
@@ -52,6 +50,9 @@ packages = [
     "openavl.plotting",
     "openavl.web",
 ]
+
+[tool.setuptools.package-data]
+"openavl.web" = ["static/**/*", "examples/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

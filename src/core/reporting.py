@@ -2,7 +2,7 @@
 
 Internal force integration stores geometry-axis ``cmtot`` and ``cftot``. AVL's
 ``AERO`` routine applies the NASA stability-axis sign convention (``GETSA`` /
-``DIR``) before printing FT totals or exposing ``CRBAX`` / ``CRSAX``.
+``DIR``) before printing FT totals or exposing ``CRBAX`` / ``CRSAX`` to OptVL.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ def nasa_dir(state: AVLState) -> float:
 
 
 def reported_totals(state: AVLState) -> dict[str, Any]:
-    """Map internal totals to AVL FT / reported coefficients.
+    """Map internal totals to AVL FT / OptVL reported coefficients.
 
     Body-axis moments ``CM`` match AVL ``Cltot``, ``Cmtot``, ``Cntot`` and
-    ``Cl``, ``Cm``, ``Cn``. Stability-axis moments ``CM_sa`` match AVL
-    ``Cl'tot``, ``Cmtot``, ``Cn'tot`` and  ``Cl'``, ``Cm``, ``Cn'``.
+    OptVL ``Cl``, ``Cm``, ``Cn``. Stability-axis moments ``CM_sa`` match AVL
+    ``Cl'tot``, ``Cmtot``, ``Cn'tot`` and OptVL ``Cl'``, ``Cm``, ``Cn'``.
     """
     dir_ = nasa_dir(state)
     ca = math.cos(float(state.alfa))

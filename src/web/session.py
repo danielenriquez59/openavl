@@ -25,19 +25,13 @@ from openavl.analysis.deriv import compute_body_axis_derivatives
 
 from openavl.web.geometry_export import model_to_geometry
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _repo_path(rel: str | Path) -> Path:
-    """Resolve a path relative to the repository root."""
-    return _REPO_ROOT / rel
-
+_EXAMPLES_DIR = Path(__file__).resolve().parent / "examples"
 
 EXAMPLES: dict[str, dict[str, Any]] = {
     "supra": {
         "label": "Supra F3J",
-        "avl": "tests/data/avl/geometries/supra.avl",
-        "mass": "tests/data/avl/mass/supra.mass",
+        "avl": _EXAMPLES_DIR / "supra.avl",
+        "mass": _EXAMPLES_DIR / "supra.mass",
     },
 }
 
@@ -705,8 +699,8 @@ def _solver_from_example(name: str) -> AVLSolver:
         raise KeyError(f"Unknown example: {name}")
     spec = EXAMPLES[key]
     return AVLSolver(
-        _repo_path(spec["avl"]),
-        mass_file=_repo_path(spec["mass"]) if spec.get("mass") else None,
+        spec["avl"],
+        mass_file=spec["mass"] if spec.get("mass") else None,
         **_example_flight_params(spec),
     )
 
@@ -738,9 +732,9 @@ def load_example(session: SessionState, name: str) -> dict[str, Any]:
     session.warnings = []
     key = name.strip().lower()
     spec = EXAMPLES.get(key)
-    avl_path = _repo_path(spec["avl"]) if spec else None
+    avl_path = spec["avl"] if spec else None
     session.pending_avl_text = avl_path.read_text(encoding="utf-8", errors="replace") if avl_path else None
-    mass_path = _repo_path(spec["mass"]) if spec and spec.get("mass") else None
+    mass_path = spec["mass"] if spec and spec.get("mass") else None
     session.pending_mass_text = (
         mass_path.read_text(encoding="utf-8", errors="replace") if mass_path else None
     )

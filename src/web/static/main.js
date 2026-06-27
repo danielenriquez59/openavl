@@ -322,7 +322,7 @@ function setNumericInput(input, value) {
 }
 
 /**
- * Render one compact matrix cell
+ * Render one compact matrix cell, mirroring Vibelattice's output grids.
  *
  * @param {string} text
  * @param {string} cls

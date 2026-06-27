@@ -368,7 +368,7 @@ class AVLSolver:
         The returned mapping summarizes the converged (or last-iterated) run
         case after :meth:`execute_run`. Lift, drag, and side force are
         stability-axis coefficients. Reported body-axis force and moment
-        coefficients follow AVL's ``OUTTOT`` / ``get_total_forces`` sign
+        coefficients follow AVL's ``OUTTOT`` / OptVL ``get_total_forces`` sign
         convention (NASA standard when ``state.lnasa_sa`` is ``True``).
 
         Returns
