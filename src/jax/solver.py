@@ -37,6 +37,9 @@ class JaxAVLSolver:
             Forwarded to :class:`openavl.core.solver.AVLSolver`.
         """
         self._numpy_solver = AVLSolver(geo_file, mass_file, **state_options)
+        # Match OpenMDAO components: run setup once so the snapshotted lattice
+        # arrays (aicn, wc_gam, influence matrices) reflect a solved state.
+        self._numpy_solver.execute_run(max_iter=1)
         state = self._numpy_solver.state
         self._geom = snapshot_analysis_geometry(state)
         self._refs = snapshot_refs(state)

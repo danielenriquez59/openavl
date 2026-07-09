@@ -307,3 +307,55 @@ def test_derivatives_three_way(avl_path: Path, kwargs: dict) -> None:
     """Hand-coded, JAX, and FD derivatives agree on multiple geometries."""
     solver = _build_solver(avl_path, kwargs["alpha"], kwargs["beta"])
     _compare_derivative_set(solver, label=avl_path.stem)
+
+
+@pytest.mark.reference
+def test_mach_derivative_matches_finite_difference() -> None:
+    """d(CL, CD, CY, CM)/d(mach) from ``jax.jacrev(run_analysis)`` matches FD (A2).
+
+    Regression test: the lattice AIC/influence matrices used to be baked in
+    at a fixed Mach, so ``jac.*.mach`` was silently ~0 regardless of the true
+    Mach sensitivity. Uses a nonzero Mach (0.3) because ``d(betm)/d(mach) = 0``
+    at ``mach=0``, which would pass trivially even with a dead partial.
+    """
+    if not PLANE_AVL.is_file():
+        pytest.skip(f"{PLANE_AVL.name} not found: {PLANE_AVL}")
+    solver = AVLSolver(PLANE_AVL)
+    solver.set_variable("alpha", 5.0)
+    solver.set_variable("beta", 2.0)
+    solver.set_parameter("mach", 0.3)
+    solver.execute_run(max_iter=1)
+    state = solver.state
+
+    geom = snapshot_analysis_geometry(state)
+    flow = snapshot_flow(state)
+    refs = snapshot_refs(state)
+    jac = jax.jacrev(run_analysis)(flow, geom, refs)
+
+    for output in ("CL", "CD"):
+        jax_val = _jax_partial(jac, output, "mach")
+        fd_val = _central_difference(geom, refs, flow, state.lnasa_sa, output, "mach")
+        assert abs(fd_val) > 1e-8, f"finite-difference d({output})/d(mach) unexpectedly ~0"
+        assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
+            f"d({output})/d(mach): JAX {jax_val} vs FD {fd_val}"
+        )
+
+    # CY can be Mach-insensitive on symmetric wings; still verify JAX matches FD.
+    jax_cy = _jax_partial(jac, "CY", "mach")
+    fd_cy = _central_difference(geom, refs, flow, state.lnasa_sa, "CY", "mach")
+    assert jax_cy == pytest.approx(fd_cy, abs=FD_TOL, rel=FD_TOL), (
+        f"d(CY)/d(mach): JAX {jax_cy} vs FD {fd_cy}"
+    )
+
+    for i, out in enumerate(("Cl", "Cm", "Cn")):
+        jax_val = float(jac.CM.mach[i])
+
+        def scalar_cm(f: FlowCondition, _i: int = i) -> float:
+            return float(run_analysis(f, geom, refs).CM[_i])
+
+        fp = _perturb_flow(flow, "mach", None, FD_STEP)
+        fm = _perturb_flow(flow, "mach", None, -FD_STEP)
+        fd_val = (scalar_cm(fp) - scalar_cm(fm)) / (2.0 * FD_STEP)
+        assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
+            f"d(CM[{i}])/d(mach) ({out}): JAX {jax_val} vs FD {fd_val}"
+        )

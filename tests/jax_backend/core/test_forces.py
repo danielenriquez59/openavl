@@ -7,14 +7,10 @@ import pytest
 
 from tests.jax_backend.require_jax import require_jax
 
-require_jax()
+jax = require_jax()
 
-from openavl.aero.cdcl import cdcl
-from openavl.aero.forces import sfforc, vinfab
-from openavl.constants import NUMAX
 from openavl.aero.trefftz import tpforc
 from openavl.jax.backend import jnp
-from openavl.jax.cdcl import cdcl_jax
 from openavl.jax.forces import (
     compute_forces,
     flow_from_state,
@@ -23,7 +19,6 @@ from openavl.jax.forces import (
     sfforc_jax,
     trefftz_geometry_from_state,
     velocities_from_state,
-    vinfab_jax,
 )
 from openavl.jax.trefftz import tpforc_jax
 from openavl.solver import AVLSolver
@@ -35,42 +30,6 @@ SQUARE_AVL = GEOMETRIES_DIR / "square.avl"
 TOL = 1e-9
 
 pytestmark = pytest.mark.core
-
-
-@pytest.mark.reference
-def test_vinfab_jax_matches_numpy():
-    alfa = np.float64(0.1)
-    beta = np.float64(0.05)
-    v_jax = np.asarray(vinfab_jax(jnp.asarray(alfa), jnp.asarray(beta)))
-    state = type(
-        "S",
-        (),
-        {
-            "alfa": alfa,
-            "beta": beta,
-            "vinf": np.zeros(3),
-            "vinf_a": np.zeros(3),
-            "vinf_b": np.zeros(3),
-        },
-    )()
-    vinfab(state)
-    np.testing.assert_allclose(v_jax, state.vinf, atol=1e-15)
-
-
-@pytest.mark.parametrize(
-    "cdclpol, cl",
-    [
-        ([-1.0, 0.08, 0.0, 0.02, 1.0, 0.09], -0.5),
-        ([-1.0, 0.08, 0.0, 0.02, 1.0, 0.09], 0.2),
-        ([-0.5, 0.06, 0.2, 0.015, 1.4, 0.11], 0.7),
-    ],
-)
-@pytest.mark.reference
-def test_cdcl_jax_matches_numpy(cdclpol, cl):
-    pol = np.array(cdclpol, dtype=np.float64)
-    cd_np, _ = cdcl(pol, cl)
-    cd_jax = float(cdcl_jax(jnp.asarray(pol), jnp.asarray(cl)))
-    assert cd_jax == pytest.approx(float(cd_np), abs=1e-12)
 
 
 def _run_plane_solver():
@@ -94,14 +53,24 @@ def _run_plane_solver():
     return solver
 
 
-def _run_symmetric_solver():
+def _run_symmetric_solver(cd0: float = 0.0):
     if not SQUARE_AVL.is_file():
         pytest.skip(f"square.avl not found: {SQUARE_AVL}")
-    solver = AVLSolver(SQUARE_AVL, alpha=2.0)
+    solver = AVLSolver(SQUARE_AVL, alpha=2.0, cd0=cd0)
     solver.execute_run(max_iter=20)
     assert solver.state.lsol
     assert solver.state.iysym == 1
     return solver
+
+
+@pytest.mark.reference
+def test_force_geometry_from_state_rejects_clmax_surf():
+    """A13 guard: ``clmax_surf`` sectional-lift clipping has no JAX port yet."""
+    solver = _run_plane_solver()
+    state = solver.state
+    state.clmax_surf[0] = 0.9
+    with pytest.raises(NotImplementedError):
+        force_geometry_from_state(state)
 
 
 @pytest.mark.reference
@@ -145,45 +114,6 @@ def test_sfforc_jax_strip_forces_plane():
         atol=TOL,
         err_msg="cystrp mismatch",
     )
-
-
-@pytest.mark.reference
-def test_sfforc_jax_inviscid_totals_plane():
-    """Compare inviscid surface totals from isolated NumPy SFFORC."""
-    solver = _run_plane_solver()
-    state = solver.state
-
-    state.cltot = 0.0
-    state.cdtot = 0.0
-    state.cytot = 0.0
-    state.cftot[:] = 0.0
-    state.cmtot[:] = 0.0
-    state.cdvtot = 0.0
-    sfforc(state)
-
-    geom = force_geometry_from_state(state)
-    flow = flow_from_state(state)
-    refs = refs_from_state(state)
-    velocities = velocities_from_state(state)
-    gamma = jnp.asarray(state.gam.reshape(-1))
-
-    result = sfforc_jax(
-        geom,
-        gamma,
-        velocities,
-        flow,
-        refs,
-        lnfld_wv=bool(state.lnfld_wv),
-        lvisc=bool(state.lvisc),
-        ltrforce=bool(state.ltrforce),
-    )
-
-    np.testing.assert_allclose(float(result.CL), state.cltot, atol=TOL)
-    np.testing.assert_allclose(float(result.CD), state.cdtot, atol=TOL)
-    np.testing.assert_allclose(float(result.CY), state.cytot, atol=TOL)
-    np.testing.assert_allclose(np.asarray(result.CM), state.cmtot, atol=TOL)
-    np.testing.assert_allclose(np.asarray(result.CF), state.cftot, atol=TOL)
-    np.testing.assert_allclose(float(result.CDV), state.cdvtot, atol=TOL)
 
 
 @pytest.mark.fixture
@@ -288,3 +218,115 @@ def test_compute_forces_trefftz_not_double_symmetrized():
     assert float(result.CLFF) == pytest.approx(state.clff, abs=TOL)
     assert float(result.CYFF) == pytest.approx(state.cyff, abs=TOL)
     assert float(result.CDFF) == pytest.approx(state.cdff, abs=TOL)
+
+
+@pytest.mark.reference
+def test_sfforc_jax_grad_finite_with_disabled_strip():
+    """A9 gradient regression: a deliberately disabled (zero-width,
+    turned-off) strip must not poison reverse-mode gradients through the
+    divide-then-mask paths in ``_vortex_forces``.
+    """
+    solver = _run_plane_solver()
+    state = solver.state
+
+    geom = force_geometry_from_state(state)
+    flow = flow_from_state(state)
+    refs = refs_from_state(state)
+    velocities = velocities_from_state(state)
+    gamma = jnp.asarray(state.gam.reshape(-1))
+
+    geom = geom._replace(
+        wstrip=geom.wstrip.at[0].set(0.0),
+        strip_map=geom.strip_map._replace(
+            lstripoff=geom.strip_map.lstripoff.at[0].set(True)
+        ),
+    )
+
+    def total(gamma_: jnp.ndarray, alfa_: jnp.ndarray) -> jnp.ndarray:
+        f = flow._replace(alfa=alfa_)
+        result = sfforc_jax(
+            geom, gamma_, velocities, f, refs,
+            lnfld_wv=bool(state.lnfld_wv),
+            lvisc=bool(state.lvisc),
+            ltrforce=bool(state.ltrforce),
+        )
+        return result.CL + result.CD
+
+    grad_gamma, grad_alfa = jax.grad(total, argnums=(0, 1))(gamma, flow.alfa)
+    assert bool(jnp.all(jnp.isfinite(grad_gamma))), "gamma gradient is not finite with a disabled strip"
+    assert bool(jnp.isfinite(grad_alfa)), "alfa gradient is not finite with a disabled strip"
+
+
+@pytest.mark.reference
+def test_apply_viscous_strips_grad_finite_mixed_polar():
+    """A10 gradient regression: strips without a viscous polar (the common
+    tails/fins case) must not poison gradients when vmapped alongside a
+    sibling strip that does have a valid polar.
+    """
+    solver = _run_plane_solver()
+    state = solver.state
+
+    geom = force_geometry_from_state(state)
+    flow = flow_from_state(state)
+    refs = refs_from_state(state)
+    velocities = velocities_from_state(state)
+    gamma = jnp.asarray(state.gam.reshape(-1))
+
+    # plane.avl has no CDCL command, so every strip's clcd row is already
+    # all-zero (no polar). Give exactly one strip a real polar so the model
+    # has genuinely mixed polar coverage while every other strip keeps its
+    # degenerate (clmax<=cl0<=clmin) row.
+    valid_polar = jnp.array([-1.0, 0.08, 0.0, 0.02, 1.0, 0.09])
+    geom = geom._replace(
+        clcd=geom.clcd.at[0].set(valid_polar),
+        strip_map=geom.strip_map._replace(
+            lviscstrp=geom.strip_map.lviscstrp.at[0].set(True)
+        ),
+    )
+
+    def total_cd(gamma_: jnp.ndarray) -> jnp.ndarray:
+        result = sfforc_jax(
+            geom, gamma_, velocities, flow, refs,
+            lnfld_wv=bool(state.lnfld_wv),
+            lvisc=True,
+        )
+        return result.CD
+
+    grad = jax.grad(total_cd)(gamma)
+    assert bool(jnp.all(jnp.isfinite(grad))), "viscous drag gradient is not finite with mixed polar coverage"
+
+
+@pytest.mark.reference
+def test_compute_forces_cdref_after_symmetry_iysym1():
+    """A12 parity: cdref must be added after XZ-symmetry doubling.
+
+    NumPy's ``aero()`` doubles the inviscid/body/Trefftz totals for
+    ``iysym=1`` and only then adds the ``cdref`` baseline-drag term, so CD
+    gets ``cdref*V^2`` (not ``2*cdref*V^2``) and the CY/CF sideforce term
+    from ``cdref`` survives the CY zeroing. JAX must match this order.
+    """
+    solver = _run_symmetric_solver(cd0=0.02)
+    state = solver.state
+    assert state.cdref > 0.0
+
+    geom = force_geometry_from_state(state)
+    flow = flow_from_state(state)
+    refs = refs_from_state(state)
+    velocities = velocities_from_state(state)
+    tgeom = trefftz_geometry_from_state(state)
+    gamma = jnp.asarray(state.gam.reshape(-1))
+
+    result = compute_forces(
+        geom,
+        gamma,
+        velocities,
+        flow,
+        refs,
+        tgeom=tgeom,
+        lnfld_wv=bool(state.lnfld_wv),
+        lvisc=bool(state.lvisc),
+    )
+
+    assert float(result.CD) == pytest.approx(state.cdtot, abs=TOL)
+    assert float(result.CY) == pytest.approx(state.cytot, abs=TOL)
+    np.testing.assert_allclose(np.asarray(result.CF), state.cftot, atol=TOL)

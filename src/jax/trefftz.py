@@ -30,7 +30,15 @@ def _filament_velocity(
     hpi: jnp.ndarray,
     sign: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Biot-Savart velocity from semi-infinite filaments (vectorized over sources)."""
+    """Biot-Savart velocity from semi-infinite filaments (vectorized over sources).
+
+    B6 note: ``rsq = hypot(r**2, rcore**2) = sqrt(r**4 + rcore**4)`` below is
+    the same Leishman r^4 core-model variant documented in
+    ``openavl.jax.vortex`` (used there for the horseshoe kernel), rather
+    than AVL's ``r**2 + rcore**2`` Scully/Burnham-Hallock form. It changes
+    induced-drag values slightly vs. AVL for multi-component configurations
+    (the Trefftz core radius is nonzero only across components).
+    """
     dy1 = ycntr[..., None] - y1
     dy2 = ycntr[..., None] - y2
     dz1 = zcntr[..., None] - z1
@@ -166,7 +174,9 @@ def tpforc_jax(
         cdff = 2.0 * cdff
 
     ar = refs.bref * refs.bref / refs.sref
-    spanef = jnp.where(cdff == 0.0, 0.0, (clff * clff + cyff * cyff) / (jnp.pi * ar * cdff))
+    cdff_zero = cdff == 0.0
+    cdff_safe = jnp.where(cdff_zero, 1.0, cdff)
+    spanef = jnp.where(cdff_zero, 0.0, (clff * clff + cyff * cyff) / (jnp.pi * ar * cdff_safe))
 
     return TrefftzForces(CL=clff, CY=cyff, CDi=cdff, spanef=spanef, dwwake=dwwake)
 
@@ -288,6 +298,8 @@ def tpforc_jax_jit(
     cdff = jnp.where(tgeom.iysym == 1, 2.0 * cdff, cdff)
 
     ar = refs.bref * refs.bref / refs.sref
-    spanef = jnp.where(cdff == 0.0, 0.0, (clff * clff + cyff * cyff) / (jnp.pi * ar * cdff))
+    cdff_zero = cdff == 0.0
+    cdff_safe = jnp.where(cdff_zero, 1.0, cdff)
+    spanef = jnp.where(cdff_zero, 0.0, (clff * clff + cyff * cyff) / (jnp.pi * ar * cdff_safe))
 
     return TrefftzForces(CL=clff, CY=cyff, CDi=cdff, spanef=spanef, dwwake=dwwake)

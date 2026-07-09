@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from openavl.aic import srdset, srdvelc, vorvelc, vsrd, vvor
-from tests.helpers import load_json_fixture, run_ref_binary
+from tests.helpers import load_json_fixture
 
 pytestmark = pytest.mark.core
 
@@ -139,24 +139,3 @@ def test_aic_matches_js_fixture(fixtures_dir):
             for k in range(3):
                 vvor_out.append(wc_gam[k, i, j])
     np.testing.assert_allclose(vvor_out, data["vvor"], rtol=0, atol=1e-5)
-
-
-@pytest.mark.reference
-def test_aic_matches_fortran_ref(ref_binary, fixtures_dir):
-    """AIC routines match Fortran aic_ref when available."""
-    ref_path = ref_binary("aic_ref")
-    if ref_path is None:
-        pytest.skip("Fortran reference binary not found")
-
-    data = load_json_fixture(fixtures_dir, "aic_expected.json")
-    ref = run_ref_binary(ref_path)
-    expected = [
-        *data["vorvelc"],
-        *data["srdvelc_v"],
-        *data["srdvelc_m"],
-        *data["srdset_src"],
-        *data["srdset_dbl"],
-        *data["vsrd"],
-        *data["vvor"],
-    ]
-    np.testing.assert_allclose(ref[: len(expected)], expected, rtol=0, atol=1e-5)

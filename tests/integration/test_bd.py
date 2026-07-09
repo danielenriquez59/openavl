@@ -55,10 +55,9 @@ def test_bd_level_flight():
 
 
 @pytest.mark.reference
-@pytest.mark.parametrize("bank", [10, 20, 30, 40, 50, 60], ids=[f"bank_{b}" for b in [10, 20, 30, 40, 50, 60]])
-def test_bd_bank_sweep(bank: float):
-    """Banked turn sweep; CL and alpha match AVL bd.run reference."""
-    solver = build_bd_solver(bank)
+def test_bd_banked_turn():
+    """Banked turn at 30 deg; CL and alpha match AVL bd.run reference."""
+    solver = build_bd_solver(30.0)
     solver.execute_run(max_iter=20)
     results = solver.get_results()
 

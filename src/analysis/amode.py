@@ -39,19 +39,24 @@ def compute_eigenmode_metrics(
 ) -> EigenmodeMetrics:
     """Compute frequency, damping, decay time, period, and half-life from λ = σ + jω.
 
-    Uses the same dimensional frequency scaling as AVL's eigenmode analysis:
-    ``f = |ω| V / (2π b_ref)`` with lengths in model units via ``unitl``.
+    ``build_sysmat`` assembles the state matrix in fully dimensional units
+    (row/column scalings by ``vee``/``rot`` convert every nondimensional AVL
+    "unit" perturbation back to actual m/s and rad/s before it is written
+    into the matrix — see e.g. the direct ``d(theta)/dt = q`` identity row),
+    so the eigenvalues ``λ = σ + jω`` returned by :func:`solve_eigenvalues`
+    are already dimensional, in rad/s. Frequency is therefore simply
+    ``f = ω / (2π)``, with no additional ``V``/``bref`` scaling — matching
+    the convention already used by ``time_constant``/``time_to_half_s``
+    below (which treat ``σ`` as 1/s).
 
     Parameters
     ----------
     eigenvalue:
-        Complex eigenvalue λ = σ + jω from the state matrix.
-    vee:
-        Reference airspeed for the run case.
-    bref:
-        Reference span in model length units.
-    unitl:
-        Model length unit scale (meters per model unit).
+        Complex eigenvalue λ = σ + jω from the state matrix (dimensional,
+        in rad/s).
+    vee, bref, unitl:
+        Unused by the frequency/damping/time-constant calculations (λ is
+        already dimensional); kept for API stability with existing callers.
 
     Returns
     -------
@@ -59,10 +64,10 @@ def compute_eigenmode_metrics(
         Real/imag parts of λ plus derived frequency, damping, time constant,
         oscillation period, and amplitude half-life.
     """
+    del vee, bref, unitl
     sigma = float(np.real(eigenvalue))
     omega = abs(float(np.imag(eigenvalue)))
-    scale = max(unitl, 1e-12) * max(bref, 1e-12)
-    freq_hz = omega * vee / (2.0 * np.pi * scale)
+    freq_hz = omega / (2.0 * np.pi)
 
     if omega > 1e-12:
         damping = -sigma / np.hypot(sigma, omega)
@@ -129,7 +134,22 @@ def _build_mass_matrices(
     state: AVLState,
     ir: int,
 ) -> tuple[float, float, float, float, float, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
-    """Assemble mass/inertia matrices and dimensional scalars."""
+    """Assemble mass/inertia matrices and dimensional scalars.
+
+    B4 sign-convention note (verified against AVL 3.52 ``amode.f``): the
+    off-diagonal terms are placed into ``riner`` directly from ``parval``,
+    with **no** extra negation. This is correct because ``parval[IPIXY/
+    IPIYZ/IPIZX]`` already stores the true inertia-tensor components (minus
+    sign folded in), not raw products of inertia. That negation happens
+    once, upstream, in ``openavl.fileio.mass.parse_mass_text`` /
+    ``masput`` (mirroring AVL's ``amass.f`` ``MASGET``/``MASPUT``:
+    ``RINER0(1,2) = -Ixy*UNITM*UNITL**2`` then
+    ``PARVAL(IPIXY,IR) = RINER0(1,2)``), and at the ``AVLSolver.set_parameter``
+    API boundary, which negates a user-supplied raw product of inertia
+    before writing it to ``parval`` (see ``core/solver.py``). AVL's own
+    ``amode.f`` ``SYSMAT``/``APPMAT`` place ``PARVAL(IPIXY,IR)`` into
+    ``RINER(1,2)`` unchanged, exactly like this function.
+    """
     gee = float(state.parval[C.IPGEE, ir])
     rho = float(state.parval[C.IPRHO, ir])
     vee = float(state.parval[C.IPVEE, ir])
@@ -190,6 +210,8 @@ def build_sysmat(state: AVLState, ir: int = 0) -> tuple[np.ndarray, np.ndarray, 
     mamat = state.amass * rho
     for k in range(3):
         mamat[k, k] += state.parval[C.IPMASS, ir]
+    # Off-diagonal placed unchanged from parval (already the tensor sign
+    # convention) -- see the B4 note in _build_mass_matrices above.
     rimat = np.array(
         [
             [state.parval[C.IPIXX, ir], state.parval[C.IPIXY, ir], state.parval[C.IPIZX, ir]],

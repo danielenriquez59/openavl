@@ -15,6 +15,7 @@ from tests.helpers import REF_DIR
 class _TpforcState:
     pi = np.pi
     amach = np.float64(0.3)
+    mach = np.float64(0.3)
     ysym = np.float64(0.2)
     zsym = np.float64(-0.1)
     iysym = 0
@@ -90,3 +91,45 @@ def test_tpforc_matches_fortran_ref():
     np.testing.assert_allclose(state.cyff_u, ref_cyff_u, atol=1e-5)
     np.testing.assert_allclose(state.cdff_u, ref_cdff_u, atol=1e-5)
     np.testing.assert_allclose(state.spanef_u, ref_span_u, atol=1e-4)
+
+
+def test_tpforc_yz_image_sensitivity_fd():
+    """FD check for B1: cdff_u must match a finite difference of cdff w.r.t.
+
+    a perturbation of gam along the gam_u[:, 0] direction, on a case with
+    both IYSYM and IZSYM set (so the yz-image contribution is exercised).
+
+    This settles the sign of the yz-image sensitivity terms in
+    ``_accumulate_trefftz_induced``: since the yz-image velocity and its
+    sensitivity are contracted through the identical signed kernel, the two
+    accumulations must use the same sign, not opposite signs.
+    """
+    state = _TpforcState()
+    state.iysym = 1
+    state.izsym = 1
+
+    tpforc(state)
+    cdff0 = state.cdff
+    cdff_u_analytic = state.cdff_u[0]
+
+    eps = 1.0e-6
+    gam0 = state.gam.copy()
+    direction = state.gam_u[:, 0].copy()
+
+    state_pert = _TpforcState()
+    state_pert.iysym = 1
+    state_pert.izsym = 1
+    state_pert.gam = gam0 + eps * direction
+    tpforc(state_pert)
+    cdff_plus = state_pert.cdff
+
+    state_pert2 = _TpforcState()
+    state_pert2.iysym = 1
+    state_pert2.izsym = 1
+    state_pert2.gam = gam0 - eps * direction
+    tpforc(state_pert2)
+    cdff_minus = state_pert2.cdff
+
+    cdff_u_fd = (cdff_plus - cdff_minus) / (2.0 * eps)
+
+    np.testing.assert_allclose(cdff_u_analytic, cdff_u_fd, rtol=1e-6, atol=1e-9)

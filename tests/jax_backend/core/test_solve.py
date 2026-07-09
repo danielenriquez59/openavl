@@ -14,7 +14,7 @@ import jax.numpy as jnp
 
 from openavl.jax.setup import compute_circulation, compute_velocities
 from openavl.jax.snapshot import snapshot_flow, snapshot_circulation_geometry, snapshot_refs
-from openavl.jax.solve import solve_circulation
+from openavl.jax.solve import lu_factor_aicn, solve_circulation, solve_from_lu
 from openavl.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
@@ -72,6 +72,34 @@ def test_solve_circulation_custom_vjp_matches_finite_differences():
 
 
 @pytest.mark.reference
+def test_solve_from_lu_grad_matches_finite_differences():
+    """``jax.grad`` runs through ``solve_from_lu``, eager and under ``jax.jit``.
+
+    A11 regression: ``_solve_from_lu_bwd`` used to return ``None`` for the
+    ``lu_piv`` cotangent, which does not match the ``(lu, piv)`` tuple-of-arrays
+    primal structure. That is tolerated by some JAX versions in eager mode but
+    raises once the same VJP is traced through ``jax.jit`` (the
+    ``JaxAVLSolver.grad(..., use_jit=True)`` path), so both are checked here.
+    """
+    rng = np.random.default_rng(7)
+    n = 6
+    a = rng.standard_normal((n, n))
+    aicn = jnp.asarray(a @ a.T + n * np.eye(n), dtype=jnp.float64)
+    rhs = jnp.asarray(rng.standard_normal(n), dtype=jnp.float64)
+    lu_piv = lu_factor_aicn(aicn)
+
+    def objective(r):
+        return jnp.sum(solve_from_lu(lu_piv, r))
+
+    grad_eager = jax.grad(objective)(rhs)
+    grad_jit = jax.grad(jax.jit(objective))(rhs)
+    grad_fd = _finite_difference_grad(objective, rhs)
+
+    assert np.allclose(np.asarray(grad_eager), np.asarray(grad_fd), atol=VJP_TOL, rtol=VJP_TOL)
+    assert np.allclose(np.asarray(grad_jit), np.asarray(grad_fd), atol=VJP_TOL, rtol=VJP_TOL)
+
+
+@pytest.mark.reference
 def test_compute_circulation_matches_numpy_solver(plane_state):
     """End-to-end JAX circulation matches NumPy ``state.gam``."""
     geom = snapshot_circulation_geometry(plane_state)
@@ -91,16 +119,18 @@ def test_compute_circulation_matches_numpy_solver(plane_state):
 
 @pytest.mark.reference
 def test_compute_velocities_matches_numpy_velsum(plane_state):
-    """JAX induced velocities match NumPy ``velsum`` output."""
+    """JAX induced velocities match NumPy ``velsum`` output (vc, vv, and wv)."""
     geom = snapshot_circulation_geometry(plane_state)
     flow = snapshot_flow(plane_state)
     refs = snapshot_refs(plane_state)
 
     gamma = compute_circulation(geom, flow, refs)
-    vc_jax, vv_jax = compute_velocities(geom, gamma)
+    vc_jax, vv_jax, wv_jax = compute_velocities(geom, gamma, flow)
 
     vc_np = plane_state.vc[:, : plane_state.nvor]
     vv_np = plane_state.vv[:, : plane_state.nvor]
+    wv_np = plane_state.wv[:, : plane_state.nvor]
 
     assert np.allclose(np.asarray(vc_jax), np.asarray(vc_np), atol=GAMMA_TOL, rtol=GAMMA_TOL)
     assert np.allclose(np.asarray(vv_jax), np.asarray(vv_np), atol=GAMMA_TOL, rtol=GAMMA_TOL)
+    assert np.allclose(np.asarray(wv_jax), np.asarray(wv_np), atol=GAMMA_TOL, rtol=GAMMA_TOL)

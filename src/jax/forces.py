@@ -85,7 +85,18 @@ def _vortex_forces(
         axis=0,
     )
     rc4_v = rc4[:, v2s]
-    sr = geom.chord[v2s] * geom.wstrip[v2s]
+    wstrip_v = geom.wstrip[v2s]
+    cr_v = geom.chord[v2s]
+    sr = cr_v * wstrip_v
+
+    # Precompute the activity mask before any division so unselected
+    # (turned-off or zero-width) strips never divide by zero: safe-where
+    # forces those denominators to a harmless 1 up front, matching the
+    # `inv_sr = where(active, 1/sr, 0)` idiom used elsewhere (see A9).
+    active = (~smap.lstripoff[v2s]) & (wstrip_v > 0.0)
+    sr_safe = jnp.where(active, sr, 1.0)
+    cr_safe = jnp.where(active, cr_v, 1.0)
+    dxw_safe = jnp.where(active, geom.dxv * wstrip_v, 1.0)
 
     r = geom.rv - rc4_v
     rrot = geom.rv - refs.xyzref[:, None]
@@ -99,22 +110,19 @@ def _vortex_forces(
     f = _cross(veff, g)
     fgam = 2.0 * gamma[None, :] * f
 
-    wstrip_v = geom.wstrip[v2s]
-    dcp = jnp.sum(geom.env * fgam, axis=0) / (geom.dxv * wstrip_v)
+    dcp = jnp.sum(geom.env * fgam, axis=0) / dxw_safe
 
-    dcfx = fgam[0] / sr
-    dcfy = fgam[1] / sr
-    dcfz = fgam[2] / sr
-    cr_v = geom.chord[v2s]
-    dcmx = ((dcfz * r[1]) - (dcfy * r[2])) / cr_v
-    dcmy = ((dcfx * r[2]) - (dcfz * r[0])) / cr_v
-    dcmz = ((dcfy * r[0]) - (dcfx * r[1])) / cr_v
+    dcfx = fgam[0] / sr_safe
+    dcfy = fgam[1] / sr_safe
+    dcfz = fgam[2] / sr_safe
+    dcmx = ((dcfz * r[1]) - (dcfy * r[2])) / cr_safe
+    dcmy = ((dcfx * r[2]) - (dcfz * r[0])) / cr_safe
+    dcmz = ((dcfy * r[0]) - (dcfx * r[1])) / cr_safe
 
     ensy_v = geom.ensy[v2s]
     ensz_v = geom.ensz[v2s]
-    dcnc = geom.chord[v2s] * (ensy_v * dcfy + ensz_v * dcfz)
+    dcnc = cr_v * (ensy_v * dcfy + ensz_v * dcfz)
 
-    active = (~smap.lstripoff[v2s]) & (geom.wstrip[v2s] > 0.0)
     z = jnp.array(0.0)
     dcfx = jnp.where(active, dcfx, z)
     dcfy = jnp.where(active, dcfy, z)
@@ -327,7 +335,14 @@ def bdforc_jax(
     flow: FlowCondition,
     refs: ReferenceQuantities,
 ) -> BodyForces:
-    """Integrate slender-body source forces over body line segments."""
+    """Integrate slender-body source forces over body line segments.
+
+    The source strength is formed live from the flow condition (the same
+    six-component unit-flow contraction as the NumPy ``gucalc``/``gamsum``
+    routines: ``src = src_u @ [vinf, wrot]``) rather than reused from the
+    snapshot flow condition, so the body force stays fully differentiable
+    w.r.t. ``alfa``/``beta``/``wrot`` at any flow condition.
+    """
     nseg = int(body.seg_i1.shape[0])
     if nseg == 0:
         z = jnp.array(0.0)
@@ -337,6 +352,8 @@ def bdforc_jax(
     sina = jnp.sin(flow.alfa)
     cosa = jnp.cos(flow.alfa)
     vinf = vinfab_jax(flow.alfa, flow.beta)
+    u = jnp.concatenate((vinf, flow.wrot))
+    src = body.src_u @ u
 
     l1 = body.seg_i1
     l2 = body.seg_i2
@@ -365,7 +382,7 @@ def bdforc_jax(
 
     us = jnp.sum(veff * esl, axis=0)
     un = veff - esl * us
-    fb = un * body.src[l1]
+    fb = un * src[l1]
     mb = _cross(rrot, fb)
     scale = 2.0 / refs.sref
 
@@ -470,12 +487,6 @@ def _compute_forces_eager(
         cdff = trefftz.CDi
         spanef = trefftz.spanef
 
-    cd_add, cy_add, cf_add, cdv_add = _cdref_contribution(flow, refs)
-    cd = cd + cd_add
-    cy = cy + cy_add
-    cf = cf + cf_add
-    cdv = cdv + cdv_add
-
     result = ForceResult(
         CL=cl,
         CD=cd,
@@ -491,7 +502,17 @@ def _compute_forces_eager(
         body=body_forces,
         trefftz=trefftz,
     )
-    return _apply_symmetry(result, refs.iysym)
+    result = _apply_symmetry(result, refs.iysym)
+
+    # cdref must be added after symmetry doubling, matching NumPy AERO's
+    # operation order: doubling first, then the baseline-drag contribution.
+    cd_add, cy_add, cf_add, cdv_add = _cdref_contribution(flow, refs)
+    return result._replace(
+        CD=result.CD + cd_add,
+        CY=result.CY + cy_add,
+        CF=result.CF + cf_add,
+        CDV=result.CDV + cdv_add,
+    )
 
 
 def _compute_forces_impl(
@@ -542,12 +563,6 @@ def _compute_forces_impl(
     cdff = jnp.where(include_trefftz, trefftz.CDi, 0.0)
     spanef = jnp.where(include_trefftz, trefftz.spanef, 0.0)
 
-    cd_add, cy_add, cf_add, cdv_add = _cdref_contribution(flow, refs)
-    cd = cd + cd_add
-    cy = cy + cy_add
-    cf = cf + cf_add
-    cdv = cdv + cdv_add
-
     result = ForceResult(
         CL=cl,
         CD=cd,
@@ -563,7 +578,17 @@ def _compute_forces_impl(
         body=body_forces,
         trefftz=trefftz,
     )
-    return _apply_symmetry(result, iysym)
+    result = _apply_symmetry(result, iysym)
+
+    # cdref must be added after symmetry doubling, matching NumPy AERO's
+    # operation order: doubling first, then the baseline-drag contribution.
+    cd_add, cy_add, cf_add, cdv_add = _cdref_contribution(flow, refs)
+    return result._replace(
+        CD=result.CD + cd_add,
+        CY=result.CY + cy_add,
+        CF=result.CF + cf_add,
+        CDV=result.CDV + cdv_add,
+    )
 
 
 _compute_forces_jit = partial(
@@ -618,6 +643,7 @@ _EMPTY_BODY = BodyGeometry(
     rl=jnp.zeros((3, 0)),
     radl=jnp.zeros(0),
     src=jnp.zeros(0),
+    src_u=jnp.zeros((0, 6)),
     seg_i1=jnp.zeros(0, dtype=jnp.int32),
     seg_i2=jnp.zeros(0, dtype=jnp.int32),
 )
@@ -663,6 +689,11 @@ def _build_vortex_to_strip(state: Any) -> np.ndarray:
 
 def force_geometry_from_state(state: Any) -> ForceGeometry:
     """Extract JAX force geometry from a solved NumPy ``AVLState`` (for tests)."""
+    clmax_surf = np.asarray(state.clmax_surf[: state.nsurf], dtype=np.float64)
+    if np.any(clmax_surf > 0.0):
+        raise NotImplementedError(
+            "JAX force integration does not yet support clmax_surf sectional-lift clipping"
+        )
     v2s = _build_vortex_to_strip(state)
     strip_to_surface = np.asarray(state.lssurf, dtype=np.int32)
     smap = StripMap(
@@ -724,6 +755,7 @@ def body_geometry_from_state(state: Any) -> BodyGeometry:
         rl=jnp.asarray(state.rl),
         radl=jnp.asarray(state.radl),
         src=jnp.asarray(state.src),
+        src_u=jnp.asarray(state.src_u),
         seg_i1=jnp.asarray(seg_i1, dtype=jnp.int32),
         seg_i2=jnp.asarray(seg_i2, dtype=jnp.int32),
     )

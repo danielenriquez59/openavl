@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -41,3 +42,19 @@ def test_cdcl_matches_fortran_ref():
         cd, cd_cl = cdcl(np.array(c["cdclpol"], dtype=np.float64), c["cl"])
         assert cd == pytest.approx(cd_ref, abs=1e-5)
         assert cd_cl == pytest.approx(cd_cl_ref, abs=1e-5)
+
+
+def test_cdcl_out_of_order_returns_zero_with_warning():
+    """Degenerate CL ordering returns (0, 0) like AVL, not NaN."""
+    pol = np.array([0.5, 0.02, 0.0, 0.01, -0.5, 0.03], dtype=np.float64)
+    with pytest.warns(UserWarning, match="out of order"):
+        cd, cd_cl = cdcl(pol, 0.1)
+    assert cd == pytest.approx(0.0)
+    assert cd_cl == pytest.approx(0.0)
+    # Second call for the same polar should not warn again.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        cd2, cd_cl2 = cdcl(pol, -0.2)
+    assert caught == []
+    assert cd2 == pytest.approx(0.0)
+    assert cd_cl2 == pytest.approx(0.0)

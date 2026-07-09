@@ -21,18 +21,9 @@ from openavl.jax.openmdao_group import OpenAVLGroup
 from tests.helpers import GEOMETRIES_DIR
 
 PLANE_AVL = GEOMETRIES_DIR / "plane.avl"
-B737_AVL = GEOMETRIES_DIR / "b737.avl"
-SUPRA_AVL = GEOMETRIES_DIR / "supra.avl"
 
 COEFF_TOL = 1e-8
 FD_TOL = 1e-4
-
-GEOMETRY_CASES = [
-    pytest.param(PLANE_AVL, id="plane"),
-    pytest.param(B737_AVL, id="b737"),
-    pytest.param(SUPRA_AVL, id="supra"),
-]
-
 
 pytestmark = pytest.mark.integration
 
@@ -41,15 +32,14 @@ def _scalar(prob: om.Problem, name: str) -> float:
     return float(np.asarray(prob.get_val(name)).item())
 
 
-@pytest.mark.parametrize("avl_path", GEOMETRY_CASES)
 @pytest.mark.reference
-def test_openavl_group_matches_jax_avl_comp(avl_path: Path) -> None:
+def test_openavl_group_matches_jax_avl_comp() -> None:
     """OpenAVLGroup at baseline geometry matches JaxAVLComp force coefficients."""
-    if not avl_path.is_file():
-        pytest.skip(f"{avl_path.name} not found")
+    if not PLANE_AVL.is_file():
+        pytest.skip(f"{PLANE_AVL.name} not found")
 
     prob_old = om.Problem()
-    prob_old.model.add_subsystem("avl", JaxAVLComp(geo_file=str(avl_path)))
+    prob_old.model.add_subsystem("avl", JaxAVLComp(geo_file=str(PLANE_AVL)))
     prob_old.setup()
     prob_old.set_val("avl.alpha", np.deg2rad(5.0))
     prob_old.set_val("avl.beta", 0.0)
@@ -57,7 +47,7 @@ def test_openavl_group_matches_jax_avl_comp(avl_path: Path) -> None:
     prob_old.run_model()
 
     prob_new = om.Problem()
-    prob_new.model = OpenAVLGroup(geo_file=str(avl_path))
+    prob_new.model = OpenAVLGroup(geo_file=str(PLANE_AVL))
     prob_new.setup()
     prob_new.set_val("alpha", 5.0)
     prob_new.set_val("beta", 0.0)

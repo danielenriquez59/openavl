@@ -197,6 +197,15 @@ def parse_mass_text(text: str) -> MassProperties:
         [xcg * props.unitl, ycg * props.unitl, zcg * props.unitl],
         dtype=np.float64,
     )
+    # B4 sign-convention note (verified against AVL 3.52 amass.f MASGET):
+    # `ixy`/`ixz`/`iyz` above are raw products of inertia (Sigma m*x*y, the
+    # mass-file input convention), but the inertia TENSOR carries negative
+    # products off the diagonal, so the minus sign is folded in exactly
+    # once, here. Every downstream consumer (masput -> parval ->
+    # amode.build_sysmat) uses this pre-negated tensor value unchanged; see
+    # amode.py's `_build_mass_matrices` for the corresponding note. AVL
+    # itself does the identical negation at this exact step:
+    # `RINER0(1,2) = -Ixy * UNITM*UNITL**2`.
     props.inertia = np.array(
         [
             [ixx, -ixy, -ixz],

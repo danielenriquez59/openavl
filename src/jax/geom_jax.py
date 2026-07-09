@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from typing import Any
 
 import numpy as np
@@ -329,6 +330,11 @@ def snapshot_topology(state: Any, model: Any) -> GeometryTopology:
 
     kutta_iv, kutta_j1, kutta_j2, stripoff_iv = _kutta_stripoff_indices(state)
 
+    chordv_snap = state.chordv[:nvor]
+    dxv_frac = np.where(
+        chordv_snap != 0.0, state.dxv[:nvor] / np.where(chordv_snap != 0.0, chordv_snap, 1.0), 0.0
+    )
+
     betm = state.betm
     if betm == 0.0:
         betm = float(np.sqrt(1.0 - state.mach * state.mach))
@@ -382,6 +388,7 @@ def snapshot_topology(state: Any, model: Any) -> GeometryTopology:
         kutta_j1=jnp.asarray(kutta_j1, dtype=jnp.int32),
         kutta_j2=jnp.asarray(kutta_j2, dtype=jnp.int32),
         stripoff_iv=jnp.asarray(stripoff_iv, dtype=jnp.int32),
+        dxv_frac=jnp.asarray(dxv_frac, dtype=jnp.float64),
     )
 
 
@@ -504,7 +511,19 @@ def _interpolate_strips(
     chcos = chcos_l + fc * (chcos_r - chcos_l)
     ainc = jnp.arctan2(chsin, chcos)
 
-    wstrip = jnp.abs(f2 - f1) * topo.width
+    # A8: recompute wstrip from the live interpolated strip edges (spanwise
+    # distance between rle1/rle2) instead of scaling the frozen baseline
+    # `topo.width`, so d(CL, CD)/d(yle, zle) picks up the area/span-growth
+    # term when sections move spanwise.
+    dy_edge = rle2[1] - rle1[1]
+    dz_edge = rle2[2] - rle1[2]
+    wstrip = jnp.sqrt(dy_edge * dy_edge + dz_edge * dz_edge)
+
+    # tanle/tante (LE/TE sweep slopes) are carried through from the frozen
+    # topology snapshot. They are not currently propagated into ForceGeometry
+    # or consumed by the force-integration pipeline, so leaving them fixed
+    # has no effect on today's outputs; documented here per A8 rather than
+    # recomputed, since they are dead outputs of this function.
     tanle = topo.tanle_slope
     tante = topo.tante_slope
 
@@ -519,7 +538,7 @@ def _build_vortex_positions(
     chord1: jnp.ndarray,
     chord2: jnp.ndarray,
     topo: GeometryTopology,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Build vortex horseshoe endpoints and control points from strip geometry."""
     v2s = topo.vortex_to_strip
     xvr = topo.xvr
@@ -549,7 +568,12 @@ def _build_vortex_positions(
     rc = rc.at[2].set(rle[2, v2s])
     chordv = cc
 
-    return rv1, rv2, rv, rc, chordv
+    # A8: dxv (chordwise vortex spacing used to normalize dCp) is a fixed
+    # fraction of chordv set by the chordwise mesh spacing at build time;
+    # recompute it from the live chordv so it tracks chord design changes.
+    dxv = topo.dxv_frac * chordv
+
+    return rv1, rv2, rv, rc, chordv, dxv
 
 
 def encalc_jax(
@@ -684,7 +708,15 @@ def encalc_jax(
     env_z = jnp.where(deg_v, ensz_v, jnp.where(emv > 0.0, czv / emv_safe, ensz_v))
     env = jnp.stack([env_x, env_y, env_z], axis=0)  # [3, nvor]
 
+    # A7: `lvnc` must additionally be forced False at the Kutta-condition row
+    # (Sigma-gamma=0 equation on lfwake=False surfaces) and the strip-off
+    # identity rows, mirroring `core/setup.py`'s explicit overrides after its
+    # own degeneracy-based `lvnc` pass. These rows get special 0..1..0 /
+    # identity treatment in `rebuild_aicn_jax`, so the RHS mask must zero the
+    # same rows or the circulation solve enforces the wrong equation there.
     lvnc = jnp.logical_not(deg_v)  # [nvor]
+    lvnc = lvnc.at[topo.kutta_iv].set(False)
+    lvnc = lvnc.at[topo.stripoff_iv].set(False)
 
     return enc, env, ess, ensy_s, ensz_s, xsref, ysref, zsref, lvnc
 
@@ -727,21 +759,64 @@ def update_geometry(
     topo: GeometryTopology,
     params: GeometryDesignParams,
     baseline: AnalysisGeometry,
+    *,
+    mach: jnp.ndarray | float | None = None,
 ) -> AnalysisGeometry:
-    """Update analysis geometry from section-level design parameters."""
+    """Update analysis geometry from section-level design parameters.
+
+    A8 status of geometry-dependent quantities not recomputed here:
+    ``wcsrd_u``/``wvsrd_u`` (body influence at moving control points and
+    vortex midpoints) and ``enc_d`` (control-surface normal sensitivities)
+    remain frozen at the baseline snapshot -- recomputing them requires
+    re-deriving body source/doublet or hinge-normal sensitivities inside the
+    traced path, which is out of scope for this fix. A warning is raised
+    below when a body or control surface is present so callers know those
+    gradients are incomplete.
+    ``ssurf``/``cavesurf`` (per-surface area/average-chord, carried in
+    ``ForceGeometry`` from the baseline) are likewise left frozen; today's
+    JAX force integration only uses their array shape, not their values, so
+    this has no effect on current outputs.
+
+    When ``mach`` is supplied, the Prandtl--Glauert factor ``betm`` for the
+    vortex influence assembly is derived from that live Mach rather than the
+    frozen ``topo.betm`` captured at snapshot time. This keeps the
+    geometry-AD path consistent with :func:`run_analysis`, which rebuilds the
+    lattice matrices from ``flow.mach`` whenever it differs from the snapshot.
+    """
     rle1, rle2, rle, chord, chord1, chord2, ainc, wstrip, tanle, tante = _interpolate_strips(
         params, topo
     )
-    rv1, rv2, rv, rc, chordv = _build_vortex_positions(
+    rv1, rv2, rv, rc, chordv, dxv = _build_vortex_positions(
         rle1, rle2, rle, chord, chord1, chord2, topo
     )
+
+    if baseline.body.nl.shape[0] > 0:
+        warnings.warn(
+            "update_geometry: wcsrd_u/wvsrd_u (body source/doublet influence "
+            "at control points and vortex midpoints) is frozen at the "
+            "baseline snapshot; gradients of body-carrying models w.r.t. "
+            "geometry design variables are incomplete.",
+            stacklevel=2,
+        )
+    if int(baseline.circulation.ncontrol) > 0:
+        warnings.warn(
+            "update_geometry: enc_d (control-surface normal sensitivities) "
+            "is frozen at the baseline snapshot; gradients of control "
+            "derivatives w.r.t. geometry design variables are incomplete.",
+            stacklevel=2,
+        )
 
     enc, env, ess, ensy, ensz, xsref, ysref, zsref, lvnc = encalc_jax(
         rv1, rv2, rv, ainc, topo.slopec, topo.slopev, wstrip, topo
     )
 
+    if mach is None:
+        betm = float(topo.betm)
+    else:
+        betm = jnp.sqrt(1.0 - mach * mach)
+
     wc_gam = _vvor_jax_remat(
-        float(topo.betm),
+        betm,
         int(topo.iysym),
         float(topo.ysym),
         int(topo.izsym),
@@ -757,7 +832,7 @@ def update_geometry(
         False,
     )
     wv_gam = _vvor_jax_remat(
-        float(topo.betm),
+        betm,
         int(topo.iysym),
         float(topo.ysym),
         int(topo.izsym),
@@ -778,11 +853,12 @@ def update_geometry(
     circulation = CirculationGeometry(
         rc=rc,
         enc=enc,
-        enc_d=base_circ.enc_d,
+        enc_d=base_circ.enc_d,  # A8: frozen at baseline; see update_geometry docstring.
         aicn=aicn,
         wc_gam=wc_gam,
         wv_gam=wv_gam,
-        wcsrd_u=base_circ.wcsrd_u,
+        wcsrd_u=base_circ.wcsrd_u,  # A8: frozen at baseline; see update_geometry docstring.
+        wvsrd_u=base_circ.wvsrd_u,  # A8: frozen at baseline, same as wcsrd_u.
         lvnc=lvnc,
         lvalbe=base_circ.lvalbe,
         numax=base_circ.numax,
@@ -797,7 +873,7 @@ def update_geometry(
         rv=rv,
         rc=rc,
         env=env,
-        dxv=base_force.dxv,
+        dxv=dxv,
         rle=rle,
         rle1=rle1,
         rle2=rle2,
@@ -812,8 +888,8 @@ def update_geometry(
         xsref=xsref,
         ysref=ysref,
         zsref=zsref,
-        ssurf=base_force.ssurf,
-        cavesurf=base_force.cavesurf,
+        ssurf=base_force.ssurf,  # A8: frozen at baseline; see update_geometry docstring.
+        cavesurf=base_force.cavesurf,  # A8: frozen at baseline; see update_geometry docstring.
         imags=base_force.imags,
         lfload=base_force.lfload,
         clcd=base_force.clcd,
@@ -858,7 +934,7 @@ def run_analysis_with_geometry(
         iysym=int(topo.iysym),
         include_body=baseline.body.nl.shape[0] > 0,
     )
-    geom = update_geometry(topo, params, baseline)
+    geom = update_geometry(topo, params, baseline, mach=flow.mach)
     return run_analysis(
         flow,
         geom,

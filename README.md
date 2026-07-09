@@ -292,6 +292,22 @@ tests/
 └── fixtures/       # JSON golden fixtures from the JS port
 ```
 
+## Deliberate deviations from AVL
+
+OpenAVL aims for numerical fidelity with AVL 3.50, with a few intentional
+corrections where the Fortran source is inconsistent or unsafe:
+
+- **Trefftz yz-image sensitivities** (`IYSYM·IZSYM`, ground effect on
+  half-models): AVL adds the yz-image contribution to the far-field velocity
+  but subtracts the matching `_u/_d/_g` sensitivity terms. OpenAVL uses the
+  same sign for value and sensitivity (verified by FD). Only active when both
+  Y and Z symmetry images are present.
+- **Body-force `1/√(1−M²)` sensitivities**: OpenAVL applies the Prandtl–Glauert
+  factor consistently to all six `VEFF_x` derivatives; AVL omits it on some
+  entries.
+- **Control/design derivatives** from `get_stability_derivatives()` are per
+  **radian**; AVL's `ST` output is per degree (multiply by 57.296 to compare).
+
 ## Support the Project
 
 [https://buymeacoffee.com/denriquez](https://buymeacoffee.com/denriquez)

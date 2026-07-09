@@ -28,11 +28,21 @@ def _solve_circulation_fwd(
 def _solve_circulation_bwd(
     res: tuple[jnp.ndarray, jnp.ndarray], gamma_bar: jnp.ndarray
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Backward pass: one transpose solve instead of differentiating LU factorization."""
+    """Backward pass: one transpose solve instead of differentiating LU factorization.
+
+    ``jnp.outer`` flattens its inputs, so it only forms the correct rank-1
+    cotangent ``-lam @ gamma.T`` when ``rhs``/``gamma`` is 1-D; a multi-column
+    RHS (e.g. a multi-unit-solve) would silently collapse into the wrong
+    shape. Branch on ``gamma.ndim`` (static, shape-derived) instead so both
+    the vector and matrix RHS cases form the correct outer/matrix product.
+    """
     aicn, gamma = res
     lam = jnp.linalg.solve(aicn.T, gamma_bar)
     rhs_bar = lam
-    aicn_bar = -jnp.outer(lam, gamma)
+    if gamma.ndim == 1:
+        aicn_bar = -jnp.outer(lam, gamma)
+    else:
+        aicn_bar = -lam @ gamma.T
     return aicn_bar, rhs_bar
 
 
@@ -56,11 +66,22 @@ def _solve_from_lu_fwd(
 def _solve_from_lu_bwd(
     res: tuple[tuple[jnp.ndarray, jnp.ndarray], jnp.ndarray],
     gamma_bar: jnp.ndarray,
-) -> tuple[None, jnp.ndarray]:
-    """Backward pass: transpose LU solve; ``lu_piv`` is non-differentiable."""
+) -> tuple[tuple[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
+    """Backward pass: transpose LU solve; ``lu_piv`` is treated as non-differentiable.
+
+    ``lu_piv`` is a ``(lu, piv)`` tuple-of-arrays primal input, so its
+    cotangent must match that pytree structure — a bare ``None`` is only a
+    valid cotangent for a single leaf, not a 2-tuple of arrays, and recent
+    JAX versions raise as soon as a gradient actually flows through this
+    path (e.g. ``JaxAVLSolver.grad`` with ``use_jit=True``). Return
+    zeros-like arrays instead: ``lu``/``piv`` are treated as constants (the
+    factorization itself is not differentiated; see module docstring), so
+    their true cotangent contribution is zero.
+    """
     lu_piv, _gamma = res
+    lu, piv = lu_piv
     lam = lu_solve(lu_piv, gamma_bar, trans=1)
-    return None, lam
+    return (jnp.zeros_like(lu), jnp.zeros_like(piv)), lam
 
 
 solve_from_lu.defvjp(_solve_from_lu_fwd, _solve_from_lu_bwd)

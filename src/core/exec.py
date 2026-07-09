@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any
 
 import numpy as np
 
 from openavl import constants as C
 from openavl.aero.forces import aero, vinfab
-from openavl.core.setup import gamsum, gdcalc, gucalc, setup, velsum
+from openavl.core.setup import gamsum, gucalc, setup, velsum
 from openavl.math.linalg import baksub, ludcmp
 
 _EPS = (2.0e-5)
@@ -16,7 +17,13 @@ _DMAX = (1.5708)
 
 
 def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
-    """Run the AVL solve loop: setup, unit solutions, forces, optional Newton trim."""
+    """Run the AVL solve loop: setup, unit solutions, forces, optional Newton trim.
+
+    On trim non-convergence or abort, leaves ``parval`` / ``lsen`` unchanged
+    (matching AVL) and emits a warning. ``gamsum`` rebuilds control/design
+    circulation from unit solutions, so the redundant ``gdcalc`` pre-pass
+    used by older AVL builds is omitted.
+    """
     _ = info
     dir_ = (-1.0 if state.lnasa_sa else 1.0)
 
@@ -53,12 +60,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
 
     gucalc(state)
     vinfab(state)
-
-    if state.ncontrol > 0:
-        gdcalc(state, state.ncontrol, state.lcondef, state.enc_d, state.gam_d)
-    if state.ndesign > 0:
-        gdcalc(state, state.ndesign, state.ldesdef, state.enc_g, state.gam_g)
-
+    # gamsum rebuilds gam_d/gam_g from gam_u_d/gam_u_g; skip redundant gdcalc.
     gamsum(state)
     velsum(state)
     aero(state)
@@ -272,6 +274,10 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
             baksub(sub, nvtot, indx, rhs)
 
             if not np.all(np.isfinite(rhs)):
+                warnings.warn(
+                    "Trim aborted: non-finite Newton step",
+                    stacklevel=2,
+                )
                 return state
 
             dal = (-rhs[C.IVALFA])
@@ -286,8 +292,16 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
             dmaxa = _DMAX
             dmaxr = (5.0 * _DMAX / state.bref)
             if abs(state.alfa + dal) > dmaxa or abs(state.beta + dbe) > dmaxa:
+                warnings.warn(
+                    "Trim aborted: alpha/beta step exceeds limit",
+                    stacklevel=2,
+                )
                 return state
             if abs(state.wrot[0] + dwx) > dmaxr or abs(state.wrot[1] + dwy) > dmaxr or abs(state.wrot[2] + dwz) > dmaxr:
+                warnings.warn(
+                    "Trim aborted: rotation-rate step exceeds limit",
+                    stacklevel=2,
+                )
                 return state
 
             state.alfa = (state.alfa + dal)
@@ -299,10 +313,6 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
                 state.delcon[n] = (state.delcon[n] + ddc[n])
 
             vinfab(state)
-            if state.ncontrol > 0:
-                gdcalc(state, state.ncontrol, state.lcondef, state.enc_d, state.gam_d)
-            if state.ndesign > 0:
-                gdcalc(state, state.ndesign, state.ldesdef, state.enc_g, state.gam_g)
             gamsum(state)
             velsum(state)
             aero(state)
@@ -322,12 +332,21 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
                 state.lsol = True
                 break
 
-    state.parval[C.IPALFA, ir] = (state.alfa / state.dtr)
-    state.parval[C.IPBETA, ir] = (state.beta / state.dtr)
-    state.parval[C.IPROTX, ir] = (state.wrot[0] * 0.5 * state.bref)
-    state.parval[C.IPROTY, ir] = (state.wrot[1] * 0.5 * state.cref)
-    state.parval[C.IPROTZ, ir] = (state.wrot[2] * 0.5 * state.bref)
-    state.parval[C.IPCL, ir] = (state.cltot)
-    state.amach = (state.mach)
-    state.lsen = True
+    # Only commit run-case parameters / sensitivity flag after a successful
+    # solve (or a pure force evaluation with niter==0). Failed trim keeps
+    # the pre-trim parval and leaves lsen unchanged, matching AVL.
+    if niter == 0 or state.lsol:
+        state.parval[C.IPALFA, ir] = (state.alfa / state.dtr)
+        state.parval[C.IPBETA, ir] = (state.beta / state.dtr)
+        state.parval[C.IPROTX, ir] = (state.wrot[0] * 0.5 * state.bref)
+        state.parval[C.IPROTY, ir] = (state.wrot[1] * 0.5 * state.cref)
+        state.parval[C.IPROTZ, ir] = (state.wrot[2] * 0.5 * state.bref)
+        state.parval[C.IPCL, ir] = (state.cltot)
+        state.amach = (state.mach)
+        state.lsen = True
+    else:
+        warnings.warn(
+            "Trim convergence failed",
+            stacklevel=2,
+        )
     return state
