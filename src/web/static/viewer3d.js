@@ -54,9 +54,14 @@ function createCgCircleTexture() {
   return createCircleTexture({ fill: "#f2c94c", stroke: "#b8860b" });
 }
 
+/** Build a filled-circle texture for the neutral-point sprite marker. */
+function createNpCircleTexture() {
+  return createCircleTexture({ fill: "#3b82f6", stroke: "#1d4ed8" });
+}
+
 /** Build a filled-circle texture for individual mass component markers. */
 function createMassCircleTexture() {
-  return createCircleTexture({ fill: "#3b82f6", stroke: "#bfdbfe", strokeWidth: 3, size: 22 });
+  return createCircleTexture({ fill: "#60a5fa", stroke: "#bfdbfe", strokeWidth: 3, size: 22 });
 }
 
 /**
@@ -152,6 +157,8 @@ export class AircraftViewer3D {
     this.liftData = null;
     this.wakeData = null;
     this.cgPoint = null;
+    /** @type {number|null} */
+    this.npX = null;
     this.componentMasses = [];
     this.liftGroup = null;
     this.wakeGroup = null;
@@ -218,8 +225,8 @@ export class AircraftViewer3D {
     this.btnCg = document.createElement("button");
     this.btnCg.type = "button";
     this.btnCg.dataset.overlay = "cg";
-    this.btnCg.textContent = "CG";
-    this.btnCg.title = "Toggle center-of-gravity marker";
+    this.btnCg.textContent = "CG/NP";
+    this.btnCg.title = "Toggle center-of-gravity and neutral-point markers";
     this.btnCg.addEventListener("click", () => this.setShowCg(!this.showCg));
 
     this.overlay.append(this.btnLift, this.btnWake, this.btnMesh, this.btnCg);
@@ -281,7 +288,7 @@ export class AircraftViewer3D {
   }
 
   /**
-   * Show or hide the center-of-gravity marker.
+   * Show or hide the center-of-gravity and neutral-point markers.
    *
    * @param {boolean} show
    */
@@ -341,6 +348,17 @@ export class AircraftViewer3D {
     } else {
       this.cgPoint = null;
     }
+    this._rebuildCgOverlay();
+  }
+
+  /**
+   * Update the neutral-point x-location (shown with the CG marker at Ycg/Zcg).
+   *
+   * @param {number|null|undefined} xnp
+   */
+  updateNeutralPoint(xnp) {
+    const value = Number(xnp);
+    this.npX = Number.isFinite(value) ? value : null;
     this._rebuildCgOverlay();
   }
 
@@ -488,15 +506,18 @@ export class AircraftViewer3D {
     this.scene.add(this.wakeGroup);
   }
 
-  /** Rebuild the center-of-gravity marker mesh. */
+  /** Rebuild the CG, NP, and component-mass marker meshes. */
   _rebuildCgOverlay() {
     this._disposeOverlayGroup(this.cgGroup);
     this.cgGroup = null;
-    if (!this.showCg || !this.cgPoint) return;
+    const hasCg = Boolean(this.cgPoint);
+    const hasNp = Number.isFinite(this.npX);
+    if (!this.showCg || (!hasCg && !hasNp && !this.componentMasses.length)) return;
 
-    const { x, y, z } = this.cgPoint;
+    const y = this.cgPoint?.y ?? 0;
+    const z = this.cgPoint?.z ?? 0;
     this.cgGroup = new THREE.Group();
-    this.cgGroup.name = "cg-marker";
+    this.cgGroup.name = "cg-np-markers";
     this.cgGroup.renderOrder = 3;
 
     const box = this._getModelBounds();
@@ -505,24 +526,50 @@ export class AircraftViewer3D {
     const markerSize = maxDim * 0.045;
     const massMarkerSize = markerSize * 0.55;
 
-    if (!this._cgSpriteTexture) {
-      this._cgSpriteTexture = createCgCircleTexture();
+    if (hasCg) {
+      if (!this._cgSpriteTexture) {
+        this._cgSpriteTexture = createCgCircleTexture();
+      }
+
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: this._cgSpriteTexture ?? undefined,
+          color: this._cgSpriteTexture ? 0xffffff : 0xf2c94c,
+          transparent: true,
+          opacity: 0.98,
+          depthTest: true,
+          depthWrite: false,
+        }),
+      );
+      sprite.position.set(this.cgPoint.x, this.cgPoint.y, this.cgPoint.z);
+      sprite.scale.set(markerSize, markerSize, 1);
+      sprite.renderOrder = 3;
+      sprite.name = "cg-marker";
+      this.cgGroup.add(sprite);
     }
 
-    const sprite = new THREE.Sprite(
-      new THREE.SpriteMaterial({
-        map: this._cgSpriteTexture ?? undefined,
-        color: this._cgSpriteTexture ? 0xffffff : 0xf2c94c,
-        transparent: true,
-        opacity: 0.98,
-        depthTest: true,
-        depthWrite: false,
-      }),
-    );
-    sprite.position.set(x, y, z);
-    sprite.scale.set(markerSize, markerSize, 1);
-    sprite.renderOrder = 3;
-    this.cgGroup.add(sprite);
+    if (hasNp) {
+      if (!this._npSpriteTexture) {
+        this._npSpriteTexture = createNpCircleTexture();
+      }
+
+      const npSprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: this._npSpriteTexture ?? undefined,
+          color: this._npSpriteTexture ? 0xffffff : 0x3b82f6,
+          transparent: true,
+          opacity: 0.98,
+          depthTest: true,
+          depthWrite: false,
+        }),
+      );
+      npSprite.position.set(this.npX, y, z);
+      npSprite.scale.set(markerSize, markerSize, 1);
+      npSprite.renderOrder = 3;
+      npSprite.name = "np-marker";
+      npSprite.userData.xnp = this.npX;
+      this.cgGroup.add(npSprite);
+    }
 
     if (!this._massSpriteTexture) {
       this._massSpriteTexture = createMassCircleTexture();
@@ -532,7 +579,7 @@ export class AircraftViewer3D {
       const massSprite = new THREE.Sprite(
         new THREE.SpriteMaterial({
           map: this._massSpriteTexture ?? undefined,
-          color: this._massSpriteTexture ? 0xffffff : 0x3b82f6,
+          color: this._massSpriteTexture ? 0xffffff : 0x60a5fa,
           transparent: true,
           opacity: 0.96,
           depthTest: true,

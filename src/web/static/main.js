@@ -248,6 +248,7 @@ function scheduleSolve() {
  */
 function setSolving(solving) {
   isSolving = solving;
+  document.body.classList.toggle("is-solving", solving);
   const btn = document.getElementById("btn-load-supra-demo");
   if (btn) btn.disabled = solving;
 }
@@ -909,6 +910,7 @@ function updateTotalForces(r) {
   const cn = r.Cn ?? cm[2];
   const controls = r.controls ?? r.delcon ?? r.control_deflections ?? {};
   const xnp = neutralPointValue(window._lastStability, r);
+  viewer.updateNeutralPoint(xnp);
   const linearAccel = Array.isArray(r.linear_acceleration_body) ? r.linear_acceleration_body : [];
   const rotationalAccel = Array.isArray(r.rotational_acceleration_body) ? r.rotational_acceleration_body : [];
 
@@ -977,6 +979,7 @@ function updateStabilityDerivs(d, results = {}) {
   }
 
   const xnp = neutralPointValue(d, results);
+  viewer.updateNeutralPoint(xnp);
   if (window._lastResults) updateTotalForces(window._lastResults);
 }
 
