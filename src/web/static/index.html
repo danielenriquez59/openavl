@@ -1054,7 +1054,16 @@
         </section>
 
         <section class="panel" id="panel-control-surface">
-          <div class="panel-header"><span class="panel-header-title">Control Surface Derivatives</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-header">
+            <span class="panel-header-title">Control Surface Derivatives</span>
+            <span class="panel-header-actions">
+              <select id="control-deriv-axis" title="Axis system for control-surface derivatives">
+                <option value="stability" selected>Stability</option>
+                <option value="body">Body</option>
+              </select>
+              <span class="panel-toggle" aria-hidden="true">▾</span>
+            </span>
+          </div>
           <div class="panel-body">
             <div style="overflow-x:auto;">
               <div class="matrix-grid body-deriv-grid" id="control-surface-grid">

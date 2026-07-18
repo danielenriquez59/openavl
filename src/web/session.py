@@ -21,8 +21,6 @@ from openavl.fileio.mass import MassProperties, _apply_mass_properties, masini, 
 from openavl.fileio.parser import AVLModel, normalize_airfoil_path, parse_avl, parse_xy_coords_text, prepare_model
 from openavl.geom.geometry import build_geometry, solver_surface_name
 from openavl.core.state import AVLState
-from openavl.analysis.deriv import compute_body_axis_derivatives
-
 from openavl.web.geometry_export import model_to_geometry
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -525,8 +523,7 @@ def _build_eigen_data(solver: AVLSolver) -> dict[str, Any]:
 
 def _serialize_body_axis_derivatives(solver: AVLSolver) -> dict[str, Any]:
     """Convert body-axis derivative matrix to a JSON-friendly mapping."""
-    derivs = compute_body_axis_derivatives(solver.state)
-    payload = asdict(derivs)
+    payload = asdict(solver.get_body_axis_derivatives())
     ncontrol = int(solver.state.ncontrol)
     control_names = list(solver.state.control_names[:ncontrol])
     for i, name in enumerate(control_names):
@@ -534,6 +531,14 @@ def _serialize_body_axis_derivatives(solver: AVLSolver) -> dict[str, Any]:
         if row_idx < len(payload["rows"]):
             payload["rows"][row_idx] = name
     return payload
+
+
+def _serialize_control_derivatives(solver: AVLSolver) -> dict[str, Any]:
+    """Serialize control-surface derivatives in both axis systems."""
+    return {
+        "stability": asdict(solver.get_control_derivatives(axis="stability")),
+        "body": asdict(solver.get_control_derivatives(axis="body")),
+    }
 
 
 def _build_results_extras(solver: AVLSolver) -> dict[str, Any]:
@@ -872,11 +877,13 @@ def build_solve_responses(
         messages.append({"type": "cp_update", "geometry": geometry})
 
     body_axis = _serialize_body_axis_derivatives(solver)
+    control_surface = _serialize_control_derivatives(solver)
     results_payload = {
         "type": "results",
         **solver.get_results(),
         **_build_results_extras(solver),
         "body_axis": body_axis,
+        "control_surface": control_surface,
         "hinge_moments": _build_hinge_moments(solver),
         "mass_props": _mass_properties_payload(solver),
     }
@@ -886,6 +893,7 @@ def build_solve_responses(
             "type": "stability_derivs",
             **_serialize_stability_derivatives(solver.get_stability_derivatives()),
             "body_axis": body_axis,
+            "control_surface": control_surface,
             "cref": float(solver.state.cref),
             "xcg": float(solver.state.parval[C.IPXCG, 0]),
         }

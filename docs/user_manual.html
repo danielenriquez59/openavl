@@ -731,6 +731,30 @@ solver.execute_run()
         (X&nbsp;fwd, Z&nbsp;down). See <a href="#derivative-axes">Derivative coordinate systems</a>.
       </p>
 
+      <!-- get_control_derivatives -->
+      <div class="method-sig">
+        <span class="ret">ControlDerivatives</span> &nbsp;<span class="name">get_control_derivatives</span>(<span class="param">axis</span><span class="type">: str = "stability"</span>) &rarr; <span class="type">ControlDerivatives</span>
+      </div>
+      <p>
+        Return a control-only derivative matrix (one row per surface) from the most
+        recent <code>execute_run()</code>. Pass <code>axis="stability"</code> (default)
+        for columns <code>CL, CD, CY, Cl, Cm, Cn</code>, or <code>axis="body"</code>
+        for <code>CX, CY, CZ, Cl, Cm, Cn</code>. Values are per radian of deflection.
+        See <a href="#derivative-axes">Derivative coordinate systems</a>.
+      </p>
+
+      <!-- get_body_axis_derivatives -->
+      <div class="method-sig">
+        <span class="ret">BodyAxisDerivatives</span> &nbsp;<span class="name">get_body_axis_derivatives</span>() &rarr; <span class="type">BodyAxisDerivatives</span>
+      </div>
+      <p>
+        Return the AVL <code>DERMATB</code>-style body-axis derivative matrix
+        (<code>u</code>&ndash;<code>r</code> and control rows; columns
+        <code>CX, CY, CZ, Cl, Cm, Cn</code>). Control rows are per radian. Prefer
+        <code>get_control_derivatives(axis="body")</code> when only control-surface
+        rows are needed by name. See <a href="#derivative-axes">Derivative coordinate systems</a>.
+      </p>
+
       <!-- setup_trim -->
       <div class="method-sig">
         <span class="ret">None</span> &nbsp;<span class="name">setup_trim</span>(<span class="param">mode</span><span class="type">: int = 1</span>) &rarr; <span class="type">None</span>
@@ -1000,7 +1024,11 @@ derivs = solver.get_stability_derivatives()
 <span class="fn">print</span>(derivs.Cn_r)   <span class="cm"># dCn/d(yaw rate)</span>
 
 <span class="cm"># Control effectiveness (per radian of deflection)</span>
-<span class="fn">print</span>(derivs.Cm_d[<span class="st">"elevator"</span>])</code></pre>
+<span class="fn">print</span>(derivs.Cm_d[<span class="st">"elevator"</span>])
+
+<span class="cm"># Control-only matrix in stability or body axes</span>
+ctrl = solver.get_control_derivatives(axis=<span class="st">"stability"</span>)
+<span class="fn">print</span>(ctrl.rows, ctrl.cols, ctrl.values)</code></pre>
 
       <p>
         <code>StabilityDerivatives</code> provides force/moment derivatives with respect to
@@ -1009,7 +1037,8 @@ derivs = solver.get_stability_derivatives()
         Derivatives with respect to <code>alpha</code>, <code>beta</code>, and control
         deflections are per radian. Control derivatives are stored in dictionaries keyed
         by control name (<code>CL_d</code>, <code>Cm_d</code>, <code>Cl_d</code>,
-        <code>Cn_d</code>, etc.).
+        <code>Cn_d</code>, etc.). For a control-only matrix in either axis system, use
+        <code>get_control_derivatives(axis=...)</code>.
       </p>
 
       <h3 id="derivative-axes">Derivative coordinate systems</h3>
@@ -1044,10 +1073,16 @@ derivs = solver.get_stability_derivatives()
           </tr>
           <tr>
             <td><strong>Body axes</strong></td>
-            <td><code>compute_body_axis_derivatives(solver.state)</code> (<code>openavl.analysis</code>)</td>
+            <td><code>solver.get_body_axis_derivatives()</code></td>
             <td><code>CX</code>, <code>CY</code>, <code>CZ</code></td>
             <td><code>Cl</code>, <code>Cm</code>, <code>Cn</code> (body axes)</td>
             <td><code>u</code>, <code>v</code>, <code>w</code>, <code>p</code>, <code>q</code>, <code>r</code>, controls</td>
+          </tr>
+          <tr>
+            <td><strong>Control surfaces</strong></td>
+            <td><code>solver.get_control_derivatives(axis=...)</code></td>
+            <td colspan="2"><code>axis="stability"</code>: <code>CL, CD, CY, Cl, Cm, Cn</code>; <code>axis="body"</code>: <code>CX, CY, CZ, Cl, Cm, Cn</code></td>
+            <td>control deflections only (1/rad)</td>
           </tr>
           <tr>
             <td><strong>Wind axes</strong></td>
@@ -1077,12 +1112,13 @@ derivs = solver.get_stability_derivatives()
         (AVL Options menu equivalent).
       </p>
 
-      <pre><code><span class="kw">from</span> openavl.analysis <span class="kw">import</span> compute_body_axis_derivatives
-
-body = compute_body_axis_derivatives(solver.state)
+      <pre><code>body = solver.get_body_axis_derivatives()
 <span class="cm"># body.rows: ["u", "v", "w", "p", "q", "r", "d1", ...]</span>
 <span class="cm"># body.cols: ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]</span>
-<span class="cm"># body.values[i][j] = d(col_j) / d(row_i)</span></code></pre>
+<span class="cm"># body.values[i][j] = d(col_j) / d(row_i)</span>
+
+ctrl = solver.get_control_derivatives(axis=<span class="st">"body"</span>)
+<span class="cm"># ctrl.rows: control names; ctrl.cols: ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]</span></code></pre>
 
       <p>
         <code>get_results()</code> mixes axis systems: <code>CL</code>, <code>CD</code>, and

@@ -30,6 +30,8 @@ let isSolving = false;
 let hasAutoLoadedExample = false;
 /** @type {"per_rad"|"per_deg"} */
 let derivDisplayUnit = "per_rad";
+/** @type {"body"|"stability"} */
+let controlDerivAxis = "stability";
 let selectedRunCaseIndex = -1;
 let controlOptions = [...DEFAULT_CONTROL_OPTIONS];
 
@@ -942,7 +944,29 @@ function renderDerivativeGrid(grid, rows, values, cols, displayValue, emptyMessa
 }
 
 /**
- * Update body-axis and control-surface derivative panels from server payload.
+ * Cache and render control-surface derivatives for the selected axis.
+ *
+ * @param {{ stability?: object, body?: object }|null|undefined} payload
+ */
+function updateControlSurface(payload) {
+  if (payload) window._lastControlSurface = payload;
+  const axisPayload = window._lastControlSurface?.[controlDerivAxis] ?? {};
+  const defaultCols =
+    controlDerivAxis === "stability"
+      ? ["CL", "CD", "CY", "Cl", "Cm", "Cn"]
+      : ["CX", "CY", "CZ", "Cl", "Cm", "Cn"];
+  renderDerivativeGrid(
+    els.controlSurfaceGrid,
+    axisPayload.rows ?? [],
+    axisPayload.values ?? [],
+    axisPayload.cols ?? defaultCols,
+    (_rowLabel, raw) => displayControlDerivValue(raw),
+    "No control-surface data",
+  );
+}
+
+/**
+ * Update the body-axis state-derivative panel from server payload.
  *
  * @param {{ rows?: string[], cols?: string[], values?: number[][] }} payload
  */
@@ -959,15 +983,6 @@ function updateBodyAxis(payload) {
     cols,
     (rowLabel, raw) => displayBodyAxisValue(rowLabel, raw),
     "No body-axis data",
-  );
-
-  renderDerivativeGrid(
-    els.controlSurfaceGrid,
-    rows.slice(BODY_AXIS_STATE_ROW_COUNT),
-    values.slice(BODY_AXIS_STATE_ROW_COUNT),
-    cols,
-    (_rowLabel, raw) => displayControlDerivValue(raw),
-    "No control-surface data",
   );
 }
 
@@ -1169,6 +1184,7 @@ function handleMessage(msg) {
         viewer.updateCpOverlay(msg.cp_data ?? msg.dcp);
       }
       if (msg.body_axis) updateBodyAxis(msg.body_axis);
+      if (msg.control_surface) updateControlSurface(msg.control_surface);
       if (msg.hinge_moments) updateHingeMoments(msg.hinge_moments);
       if (msg.mass_props) {
         updateMassProperties(msg.mass_props);
@@ -1186,6 +1202,7 @@ function handleMessage(msg) {
       window._lastStability = msg;
       updateStabilityDerivs(msg, msg);
       if (msg.body_axis) updateBodyAxis(msg.body_axis);
+      if (msg.control_surface) updateControlSurface(msg.control_surface);
       break;
 
     case "trefftz_data":
@@ -1385,6 +1402,15 @@ function bindUI() {
       if (window._lastBodyAxis) {
         updateBodyAxis(window._lastBodyAxis);
       }
+      updateControlSurface();
+    });
+  }
+
+  const controlAxis = document.getElementById("control-deriv-axis");
+  if (controlAxis) {
+    controlAxis.addEventListener("change", () => {
+      controlDerivAxis = controlAxis.value === "body" ? "body" : "stability";
+      updateControlSurface();
     });
   }
 }

@@ -14,14 +14,19 @@ from openavl.analysis.amode import (
 )
 from openavl.analysis.deriv import (
     BodyAxisDerivatives,
+    ControlAxis,
+    ControlDerivatives,
     StabilityDerivatives,
     compute_body_axis_derivatives,
+    compute_control_derivatives,
     compute_stability_derivatives,
 )
 from openavl.analysis.trim import setup_trim
 
 __all__ = [
     "BodyAxisDerivatives",
+    "ControlAxis",
+    "ControlDerivatives",
     "EigenAnalysisResult",
     "EigenmodeMetrics",
     "FlightMode",
@@ -30,6 +35,7 @@ __all__ = [
     "build_appmat",
     "build_sysmat",
     "compute_body_axis_derivatives",
+    "compute_control_derivatives",
     "compute_eigenmode_metrics",
     "compute_stability_derivatives",
     "identify_modes",

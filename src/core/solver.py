@@ -9,7 +9,12 @@ from openavl import constants as C
 
 if TYPE_CHECKING:
     from openavl.analysis.amode import EigenAnalysisResult
-    from openavl.analysis.deriv import StabilityDerivatives
+    from openavl.analysis.deriv import (
+        BodyAxisDerivatives,
+        ControlAxis,
+        ControlDerivatives,
+        StabilityDerivatives,
+    )
 from openavl.core.reporting import reported_totals
 from openavl.core.state import AVLState
 from openavl.fileio.mass import load_mass, masini
@@ -59,6 +64,10 @@ class AVLSolver:
     --------
     openavl.analysis.deriv.StabilityDerivatives
         Container returned by :meth:`get_stability_derivatives`.
+    openavl.analysis.deriv.BodyAxisDerivatives
+        Container returned by :meth:`get_body_axis_derivatives`.
+    openavl.analysis.deriv.ControlDerivatives
+        Container returned by :meth:`get_control_derivatives`.
     openavl.analysis.amode.EigenAnalysisResult
         Container returned by :meth:`eigenvalues`.
     """
@@ -477,6 +486,64 @@ class AVLSolver:
         from openavl.analysis.deriv import compute_stability_derivatives
 
         return compute_stability_derivatives(self.state)
+
+    def get_control_derivatives(
+        self,
+        axis: ControlAxis = "stability",
+    ) -> ControlDerivatives:
+        """Extract control-surface force and moment derivatives.
+
+        Returns a control-only matrix (one row per surface) in either
+        stability or body axes. Values are per radian of deflection.
+
+        Parameters
+        ----------
+        axis:
+            ``"stability"`` (default) for columns ``CL, CD, CY, Cl, Cm, Cn``,
+            or ``"body"`` for ``CX, CY, CZ, Cl, Cm, Cn``.
+
+        Returns
+        -------
+        ControlDerivatives
+            ``rows`` are control names, ``cols`` are coefficient labels for
+            the chosen axis, and ``values[i][j]`` is
+            d(col_j) / d(δ_row_i) in 1/rad.
+
+        Notes
+        -----
+        Requires a prior :meth:`execute_run` so the ``*_d`` sensitivity arrays
+        are populated. Stability-axis moments use the same transform as
+        :meth:`get_stability_derivatives`; body-axis rows match the control
+        block of :func:`openavl.analysis.deriv.compute_body_axis_derivatives`.
+        """
+        from openavl.analysis.deriv import compute_control_derivatives
+
+        return compute_control_derivatives(self.state, axis=axis)
+
+    def get_body_axis_derivatives(self) -> BodyAxisDerivatives:
+        """Extract the body-axis force and moment derivative matrix.
+
+        Returns AVL ``DERMATB``-style derivatives with respect to normalized
+        velocity and rate perturbations (``u``–``r``) and control deflections.
+        Control rows are per radian; velocity and rate rows follow
+        :func:`openavl.analysis.deriv.compute_body_axis_derivatives`.
+
+        Returns
+        -------
+        BodyAxisDerivatives
+            Matrix with columns ``CX, CY, CZ, Cl, Cm, Cn``. Control rows are
+            labeled ``d1``, ``d2``, … in index order; use
+            :meth:`get_control_derivatives` with ``axis="body"`` for a
+            control-only matrix keyed by control name.
+
+        Notes
+        -----
+        Requires a prior :meth:`execute_run` so the ``*_u`` and ``*_d``
+        sensitivity arrays are populated.
+        """
+        from openavl.analysis.deriv import compute_body_axis_derivatives
+
+        return compute_body_axis_derivatives(self.state)
 
     def setup_trim(self, mode: int = 1) -> None:
         """Initialize longitudinal trim constraints and flight parameters.

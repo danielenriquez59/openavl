@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
 from openavl.core.state import AVLState
+
+ControlAxis = Literal["stability", "body"]
 
 
 @dataclass
@@ -294,3 +296,73 @@ def compute_body_axis_derivatives(state: AVLState) -> BodyAxisDerivatives:
         )
 
     return BodyAxisDerivatives(rows=rows, values=values)
+
+
+@dataclass
+class ControlDerivatives:
+    """Control-surface force and moment derivatives in one axis system.
+
+    Rows are control names. Columns are stability-axis
+    ``CL, CD, CY, Cl, Cm, Cn`` or body-axis ``CX, CY, CZ, Cl, Cm, Cn``.
+    All values are per radian of control deflection.
+    """
+
+    axis: ControlAxis = "stability"
+    rows: list[str] = field(default_factory=list)
+    cols: list[str] = field(default_factory=list)
+    values: list[list[float]] = field(default_factory=list)
+
+
+def compute_control_derivatives(
+    state: AVLState,
+    axis: ControlAxis = "stability",
+) -> ControlDerivatives:
+    """Extract control-surface derivatives in body or stability axes.
+
+    Parameters
+    ----------
+    state:
+        Solver state with populated ``*_d`` sensitivity arrays from the latest
+        run.
+    axis:
+        ``"stability"`` for ``CL, CD, CY, Cl, Cm, Cn`` (default), or
+        ``"body"`` for ``CX, CY, CZ, Cl, Cm, Cn``.
+
+    Returns
+    -------
+    ControlDerivatives
+        Matrix with one row per control surface. Values are per radian of
+        deflection. Stability-axis roll/yaw moments use the same
+        body-to-stability transform as :func:`compute_stability_derivatives`;
+        body-axis rows match the control block of
+        :func:`compute_body_axis_derivatives`.
+    """
+    if axis == "stability":
+        stab = compute_stability_derivatives(state)
+        cols = ["CL", "CD", "CY", "Cl", "Cm", "Cn"]
+        rows = list(stab.CL_d.keys())
+        values = [
+            [
+                stab.CL_d[name],
+                stab.CD_d[name],
+                stab.CY_d[name],
+                stab.Cl_d[name],
+                stab.Cm_d[name],
+                stab.Cn_d[name],
+            ]
+            for name in rows
+        ]
+        return ControlDerivatives(axis="stability", rows=rows, cols=cols, values=values)
+
+    if axis == "body":
+        body = compute_body_axis_derivatives(state)
+        cols = list(body.cols)
+        ncontrol = int(state.ncontrol)
+        rows = [
+            state.control_names[n] if n < len(state.control_names) else f"d{n + 1}"
+            for n in range(ncontrol)
+        ]
+        values = [list(row) for row in body.values[6 : 6 + ncontrol]]
+        return ControlDerivatives(axis="body", rows=rows, cols=cols, values=values)
+
+    raise ValueError(f"axis must be 'stability' or 'body', got {axis!r}")
