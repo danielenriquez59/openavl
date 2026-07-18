@@ -12,7 +12,8 @@ import pytest
 
 from openavl import constants as C
 from openavl.amode import build_appmat, build_sysmat, identify_modes, runchk, solve_eigenvalues
-from openavl.analysis.amode import compute_eigenmode_metrics
+from openavl.analysis.amode import _build_mass_matrices, compute_eigenmode_metrics
+from openavl.math.util import m3inv
 from openavl.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR, REF_DIR
@@ -139,6 +140,38 @@ def test_sysmat_construction():
     assert actual[1:] == pytest.approx(expected[1:], abs=TOL)
 
 
+def test_build_sysmat_inertia_off_diagonal_sign_convention():
+    """B4: verify the Ixy/Iyz/Izx sign convention end-to-end.
+
+    ``parval[IPIXY/IPIYZ/IPIZX]`` already stores the inertia TENSOR
+    components (minus sign folded in by ``fileio.mass``/``AVLSolver.
+    set_parameter``), so ``build_sysmat`` must place them into the
+    off-diagonal unchanged -- exactly as verified against AVL 3.52's
+    ``amode.f`` (``RINER(1,2) = PARVAL(IPIXY,IR)``, no extra negation).
+    """
+    state = _make_synthetic_state()
+    ir = 0
+    # Distinct off-diagonal values so a sign flip is unambiguous.
+    state.parval[C.IPIXY, ir] = -0.5
+    state.parval[C.IPIYZ, ir] = -0.4
+    state.parval[C.IPIZX, ir] = 0.3
+
+    built = _build_mass_matrices(state, ir)
+    assert built is not None
+
+    riner_expected = np.array(
+        [
+            [state.parval[C.IPIXX, ir], -0.5, 0.3],
+            [-0.5, state.parval[C.IPIYY, ir], -0.4],
+            [0.3, -0.4, state.parval[C.IPIZZ, ir]],
+        ]
+    )
+    rho = float(state.parval[C.IPRHO, ir])
+    rimat_expected = riner_expected + state.ainer * rho
+    riinv_expected = m3inv(rimat_expected.copy())
+    np.testing.assert_allclose(built[8], riinv_expected, atol=1e-10)
+
+
 def test_runchk_detects_duplicate_constraints():
     """RUNCHK rejects run cases with redundant constraints."""
     state = _make_synthetic_state()
@@ -148,8 +181,8 @@ def test_runchk_detects_duplicate_constraints():
 
 
 @pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
-def test_eigenvalues_physical():
-    """Trimmed plane case yields finite eigenvalues with negative real parts."""
+def test_plane_eigenanalysis():
+    """Trimmed plane case yields stable eigenvalues and classical mode names."""
     solver = AVLSolver(PLANE_AVL)
     solver.set_parameter("mass", 1.0)
     solver.set_parameter("velocity", 1.0)
@@ -168,19 +201,6 @@ def test_eigenvalues_physical():
             stable += 1
     assert stable >= len(result.eigenvalues) // 2
 
-
-@pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
-def test_mode_identification():
-    """Eigenanalysis identifies classical dynamic mode names."""
-    solver = AVLSolver(PLANE_AVL)
-    solver.set_parameter("mass", 1.0)
-    solver.set_parameter("velocity", 1.0)
-    solver.set_parameter("density", 1.0)
-    solver.set_parameter("gravity", 1.0)
-    solver.setup_trim(mode=1)
-    solver.execute_run(max_iter=20)
-
-    result = solver.eigenvalues(use_approx=True)
     names = {mode.name.split()[0] for mode in result.modes}
     assert "short" in names or "phugoid" in names or "longitudinal" in names
     assert "Dutch" in names or "roll" in names or "spiral" in names or "lateral" in names
@@ -202,6 +222,21 @@ def test_compute_eigenmode_metrics():
     assert subsidence.frequency_hz == pytest.approx(0.0)
     assert subsidence.period_s == math.inf
     assert subsidence.time_to_half_s == pytest.approx(math.log(2.0) / 0.4)
+
+
+def test_compute_eigenmode_metrics_frequency_ignores_vee_bref_scale():
+    """B3: eigenvalues from build_sysmat are already dimensional (1/s), so
+    frequency_hz must equal omega/(2*pi) regardless of vee/bref/unitl -- it
+    must NOT pick up an extra V/bref factor (that would make it inconsistent
+    with time_constant/time_to_half_s, which are computed straight from
+    sigma in 1/s).
+    """
+    base = compute_eigenmode_metrics(-0.5 + 1.2j, vee=1.0, bref=1.0, unitl=1.0)
+    scaled = compute_eigenmode_metrics(-0.5 + 1.2j, vee=37.0, bref=4.2, unitl=0.3048)
+
+    assert scaled.frequency_hz == pytest.approx(base.frequency_hz)
+    assert scaled.frequency_hz == pytest.approx(1.2 / (2.0 * math.pi))
+    assert scaled.period_s == pytest.approx(base.period_s)
 
 
 def test_appmat_shape():

@@ -5,11 +5,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from openavl import constants as C
 
 if TYPE_CHECKING:
     from openavl.analysis.amode import EigenAnalysisResult
-    from openavl.analysis.deriv import StabilityDerivatives
+    from openavl.analysis.deriv import (
+        BodyAxisDerivatives,
+        ControlAxis,
+        ControlDerivatives,
+        StabilityDerivatives,
+    )
 from openavl.core.reporting import reported_totals
 from openavl.core.state import AVLState
 from openavl.fileio.mass import load_mass, masini
@@ -35,10 +42,11 @@ class AVLSolver:
     3. Define trim targets with :meth:`set_constraint`, optionally calling
        :meth:`setup_trim` for level-flight presets.
     4. Run the Newton iteration with :meth:`execute_run`.
-    5. Retrieve coefficients (:meth:`get_results`), derivatives
-       (:meth:`get_stability_derivatives`), and/or dynamic modes
-       (:meth:`eigenvalues`). Visualize with :meth:`plot_aircraft`,
-       :meth:`plot_lift_distribution`, and :meth:`plot_cp`.
+    5. Retrieve coefficients (:meth:`get_results`), aerodynamic accelerations
+       (:meth:`get_aero_accel`), derivatives (:meth:`get_stability_derivatives`),
+       and/or dynamic modes (:meth:`eigenvalues`). Visualize with
+       :meth:`plot_aircraft`, :meth:`plot_lift_distribution`, and
+       :meth:`plot_cp`.
 
     Attributes
     ----------
@@ -59,6 +67,10 @@ class AVLSolver:
     --------
     openavl.analysis.deriv.StabilityDerivatives
         Container returned by :meth:`get_stability_derivatives`.
+    openavl.analysis.deriv.BodyAxisDerivatives
+        Container returned by :meth:`get_body_axis_derivatives`.
+    openavl.analysis.deriv.ControlDerivatives
+        Container returned by :meth:`get_control_derivatives`.
     openavl.analysis.amode.EigenAnalysisResult
         Container returned by :meth:`eigenvalues`.
     """
@@ -338,6 +350,33 @@ class AVLSolver:
         self.state.icon[iv, 0] = ic
         self.state.conval[ic, 0] = float(value)
 
+    def replace_constraints(self, constraints: list[tuple[str, str, float]]) -> None:
+        """Replace every run-case constraint assignment for the current analysis.
+
+        Variables omitted from ``constraints`` are fixed at zero. This prevents
+        assignments and solved control deflections from a previously applied run
+        case from leaking into a new one. Explicit fixed values can be applied
+        afterward with :meth:`set_variable`.
+
+        Parameters
+        ----------
+        constraints:
+            Complete ``(variable, constraint, value)`` assignments for the run
+            case. Names and values follow :meth:`set_constraint`.
+        """
+        fixed_variables = [
+            "alpha",
+            "beta",
+            "pb/2V",
+            "qc/2V",
+            "rb/2V",
+            *self.state.control_names,
+        ]
+        for variable in fixed_variables:
+            self.set_constraint(variable, variable, 0.0)
+        for variable, constraint, value in constraints:
+            self.set_constraint(variable, constraint, value)
+
     def execute_run(self, max_iter: int = 20) -> None:
         """Run the Newton trim iteration and update solver state.
 
@@ -449,6 +488,76 @@ class AVLSolver:
             "mach": s.mach,
         }
 
+    def get_aero_accel(self) -> dict[str, Any]:
+        """Return body-axis accelerations derived from integrated aero loads.
+
+        Dimensional force and moment vectors are computed from the latest
+        solved body-axis coefficients, then converted to translational and
+        rotational accelerations with Newton-Euler rigid-body dynamics. These
+        values are post-processed results, not native solver state variables.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dynamic pressure, dimensional body-axis force and moment vectors,
+            linear and rotational body-axis accelerations, mass, and inertia.
+            With SI geometry and mass-file units, linear acceleration is in
+            m/s² and rotational acceleration is in rad/s².
+
+        Raises
+        ------
+        ValueError
+            If the current run-case mass is not positive.
+        numpy.linalg.LinAlgError
+            If the inertia matrix is singular.
+        """
+        s = self.state
+        ir = 0
+        rho = float(s.parval[C.IPRHO, ir])
+        velocity = float(s.parval[C.IPVEE, ir])
+        mass = float(s.parval[C.IPMASS, ir])
+        if mass <= 0.0:
+            raise ValueError("mass must be positive to calculate acceleration")
+
+        inertia = np.array(
+            [
+                [s.parval[C.IPIXX, ir], s.parval[C.IPIXY, ir], s.parval[C.IPIZX, ir]],
+                [s.parval[C.IPIXY, ir], s.parval[C.IPIYY, ir], s.parval[C.IPIYZ, ir]],
+                [s.parval[C.IPIZX, ir], s.parval[C.IPIYZ, ir], s.parval[C.IPIZZ, ir]],
+            ],
+            dtype=np.float64,
+        )
+        reported = reported_totals(s)
+        cl, cm, cn = reported["CM"]
+
+        dynamic_pressure = 0.5 * rho * velocity**2
+        sref = float(s.sref) * s.unitl * s.unitl
+        bref = float(s.bref) * s.unitl
+        cref = float(s.cref) * s.unitl
+        force_body = dynamic_pressure * sref * np.asarray(reported["CF"], dtype=np.float64)
+        moment_body = dynamic_pressure * sref * np.array(
+            [bref * cl, cref * cm, bref * cn],
+            dtype=np.float64,
+        )
+
+        linear_acceleration = force_body / mass
+        omega_body = s.wrot * velocity / s.unitl
+        angular_momentum = inertia @ omega_body
+        rotational_acceleration = np.linalg.solve(
+            inertia,
+            moment_body - np.cross(omega_body, angular_momentum),
+        )
+
+        return {
+            "dynamic_pressure": dynamic_pressure,
+            "force_body": force_body,
+            "moment_body": moment_body,
+            "linear_acceleration_body": linear_acceleration,
+            "rotational_acceleration_body": rotational_acceleration,
+            "mass": mass,
+            "inertia": inertia,
+        }
+
     def get_stability_derivatives(self) -> StabilityDerivatives:
         """Extract stability-axis force, moment, and control derivatives.
 
@@ -477,6 +586,64 @@ class AVLSolver:
         from openavl.analysis.deriv import compute_stability_derivatives
 
         return compute_stability_derivatives(self.state)
+
+    def get_control_derivatives(
+        self,
+        axis: ControlAxis = "stability",
+    ) -> ControlDerivatives:
+        """Extract control-surface force and moment derivatives.
+
+        Returns a control-only matrix (one row per surface) in either
+        stability or body axes. Values are per radian of deflection.
+
+        Parameters
+        ----------
+        axis:
+            ``"stability"`` (default) for columns ``CL, CD, CY, Cl, Cm, Cn``,
+            or ``"body"`` for ``CX, CY, CZ, Cl, Cm, Cn``.
+
+        Returns
+        -------
+        ControlDerivatives
+            ``rows`` are control names, ``cols`` are coefficient labels for
+            the chosen axis, and ``values[i][j]`` is
+            d(col_j) / d(δ_row_i) in 1/rad.
+
+        Notes
+        -----
+        Requires a prior :meth:`execute_run` so the ``*_d`` sensitivity arrays
+        are populated. Stability-axis moments use the same transform as
+        :meth:`get_stability_derivatives`; body-axis rows match the control
+        block of :func:`openavl.analysis.deriv.compute_body_axis_derivatives`.
+        """
+        from openavl.analysis.deriv import compute_control_derivatives
+
+        return compute_control_derivatives(self.state, axis=axis)
+
+    def get_body_axis_derivatives(self) -> BodyAxisDerivatives:
+        """Extract the body-axis force and moment derivative matrix.
+
+        Returns AVL ``DERMATB``-style derivatives with respect to normalized
+        velocity and rate perturbations (``u``–``r``) and control deflections.
+        Control rows are per radian; velocity and rate rows follow
+        :func:`openavl.analysis.deriv.compute_body_axis_derivatives`.
+
+        Returns
+        -------
+        BodyAxisDerivatives
+            Matrix with columns ``CX, CY, CZ, Cl, Cm, Cn``. Control rows are
+            labeled ``d1``, ``d2``, … in index order; use
+            :meth:`get_control_derivatives` with ``axis="body"`` for a
+            control-only matrix keyed by control name.
+
+        Notes
+        -----
+        Requires a prior :meth:`execute_run` so the ``*_u`` and ``*_d``
+        sensitivity arrays are populated.
+        """
+        from openavl.analysis.deriv import compute_body_axis_derivatives
+
+        return compute_body_axis_derivatives(self.state)
 
     def setup_trim(self, mode: int = 1) -> None:
         """Initialize longitudinal trim constraints and flight parameters.

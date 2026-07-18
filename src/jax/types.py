@@ -11,7 +11,18 @@ else:
 
 
 class CirculationGeometry(NamedTuple):
-    """Pre-computed lattice geometry for circulation solve (Phases 3A-3C)."""
+    """Pre-computed lattice geometry for circulation solve (Phases 3A-3C).
+
+    ``aicn``/``wc_gam``/``wv_gam`` are baked-in constants captured at a fixed
+    Mach number by default. The trailing raw-geometry fields below (default
+    ``None``) are optional: when populated (see ``snapshot_circulation_geometry``),
+    ``openavl.jax.setup.rebuild_circulation_geometry`` uses them to rebuild
+    ``aicn``/``wc_gam``/``wv_gam`` from a live, differentiable ``betm`` derived
+    from ``FlowCondition.mach`` (A2). Callers that leave them ``None`` (e.g.
+    the geometry-design-variable AD path in ``geom_jax.update_geometry``, which
+    already rebuilds these matrices itself from a separately-tracked Mach) are
+    unaffected and keep today's frozen-Mach behavior.
+    """
 
     rc: Array  # [3, nvor]
     enc: Array  # [3, nvor]
@@ -20,10 +31,28 @@ class CirculationGeometry(NamedTuple):
     wc_gam: Array  # [3, nvor, nvor]
     wv_gam: Array  # [3, nvor, nvor]
     wcsrd_u: Array  # [3, nvor, numax]
+    wvsrd_u: Array  # [3, nvor, numax]
     lvnc: Array  # [nvor] bool
     lvalbe: Array  # [nvor] bool
     numax: int = 6
     ncontrol: int = 0
+    # --- Optional raw lattice geometry for live-Mach AIC rebuild (A2) ---
+    rv1: Array | None = None  # [3, nvor]
+    rv2: Array | None = None  # [3, nvor]
+    rv: Array | None = None  # [3, nvor]
+    chordv: Array | None = None  # [nvor]
+    lvcomp: Array | None = None  # [nvor] int, component index per vortex
+    iysym: int = 0
+    ysym: float = 0.0
+    izsym: int = 0
+    zsym: float = 0.0
+    vrcorec: float = 0.0
+    vrcorew: float = 0.0
+    kutta_iv: Array | None = None  # [n_kutta] Kutta-condition row indices
+    kutta_j1: Array | None = None  # [n_kutta] first bound vortex on strip
+    kutta_j2: Array | None = None  # [n_kutta] last bound vortex on strip
+    stripoff_iv: Array | None = None  # [n_stripoff] identity-row indices
+    snapshot_mach: Array | None = None  # Mach at which aicn/wc_gam were captured
 
 
 class GeometryStripMap(NamedTuple):
@@ -135,6 +164,7 @@ class BodyGeometry(NamedTuple):
     rl: Array
     radl: Array
     src: Array
+    src_u: Array  # [nlmax, 6] unit-flow source-strength sensitivity (GUCALC)
     seg_i1: Array
     seg_i2: Array
 
@@ -216,6 +246,7 @@ class GeometryTopology(NamedTuple):
     kutta_j1: Array  # [n_kutta] first bound vortex on strip
     kutta_j2: Array  # [n_kutta] last bound vortex on strip (Kutta row)
     stripoff_iv: Array  # [n_stripoff] identity-row vortex indices
+    dxv_frac: Array  # [nvor] baseline dxv/chordv ratio (chordwise dCp spacing fraction)
 
 
 class AnalysisGeometry(NamedTuple):
@@ -337,4 +368,4 @@ class AnalysisResult(NamedTuple):
     CD: Array
     CY: Array
     CM: Array
-
+

@@ -132,8 +132,56 @@ def snapshot_geometry(state: Any) -> GeometryArrays:
     )
 
 
+def _kutta_stripoff_row_indices(state: Any) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Row indices for the AIC's Kutta-condition and strip-off overrides.
+
+    Mirrors the row selection in ``_rebuild_aicn`` above (and
+    ``geom_jax._kutta_stripoff_indices``, kept separate here to avoid a
+    circular import between ``snapshot`` and ``geom_jax``): each lifting
+    surface's trailing-edge row enforces circulation continuity across the
+    strip ``[i1, iv]``, and each strip-off row is an identity row.
+    """
+    kutta_iv: list[int] = []
+    kutta_j1: list[int] = []
+    kutta_j2: list[int] = []
+    stripoff_iv: list[int] = []
+
+    for n in range(state.nsurf):
+        if state.lfwake[n]:
+            continue
+        j1 = int(state.jfrst[n])
+        jn = j1 + int(state.nj[n]) - 1
+        for j in range(j1, jn + 1):
+            i1 = int(state.ijfrst[j])
+            iv = int(state.ijfrst[j] + state.nvstrp[j] - 1)
+            kutta_iv.append(iv)
+            kutta_j1.append(i1)
+            kutta_j2.append(iv)
+
+    for j in range(state.nstrip):
+        if not state.lstripoff[j]:
+            continue
+        i1 = int(state.ijfrst[j])
+        for k in range(int(state.nvstrp[j])):
+            stripoff_iv.append(i1 + k)
+
+    return (
+        np.asarray(kutta_iv, dtype=np.int32),
+        np.asarray(kutta_j1, dtype=np.int32),
+        np.asarray(kutta_j2, dtype=np.int32),
+        np.asarray(stripoff_iv, dtype=np.int32),
+    )
+
+
 def snapshot_circulation_geometry(state: Any) -> CirculationGeometry:
-    """Extract circulation-solve geometry arrays from ``AVLState``."""
+    """Extract circulation-solve geometry arrays from ``AVLState``.
+
+    In addition to the baked-in ``aicn``/``wc_gam``/``wv_gam`` (captured at
+    ``state.mach``), this also captures the raw lattice geometry (``rv1``,
+    ``rv2``, ``rv``, ``chordv``, ``lvcomp``, symmetry/core-radius params, and
+    Kutta/strip-off row indices) so ``openavl.jax.setup.rebuild_circulation_geometry``
+    can recompute those matrices from a live, differentiable Mach (A2).
+    """
     nvor = state.nvor
     ncontrol = state.ncontrol
     enc_d = (
@@ -141,6 +189,7 @@ def snapshot_circulation_geometry(state: Any) -> CirculationGeometry:
         if ncontrol
         else np.zeros((3, nvor, 0), dtype=np.float64)
     )
+    kutta_iv, kutta_j1, kutta_j2, stripoff_iv = _kutta_stripoff_row_indices(state)
     return CirculationGeometry(
         rc=jnp.asarray(state.rc[:, :nvor], dtype=jnp.float64),
         enc=jnp.asarray(state.enc[:, :nvor], dtype=jnp.float64),
@@ -149,10 +198,27 @@ def snapshot_circulation_geometry(state: Any) -> CirculationGeometry:
         wc_gam=jnp.asarray(state.wc_gam[:, :nvor, :nvor], dtype=jnp.float64),
         wv_gam=jnp.asarray(state.wv_gam[:, :nvor, :nvor], dtype=jnp.float64),
         wcsrd_u=jnp.asarray(state.wcsrd_u[:, :nvor, : state.numax], dtype=jnp.float64),
+        wvsrd_u=jnp.asarray(state.wvsrd_u[:, :nvor, : state.numax], dtype=jnp.float64),
         lvnc=jnp.asarray(state.lvnc[:nvor], dtype=bool),
         lvalbe=jnp.asarray(state.lvalbe[:nvor], dtype=bool),
         numax=int(state.numax),
         ncontrol=int(ncontrol),
+        rv1=jnp.asarray(state.rv1[:, :nvor], dtype=jnp.float64),
+        rv2=jnp.asarray(state.rv2[:, :nvor], dtype=jnp.float64),
+        rv=jnp.asarray(state.rv[:, :nvor], dtype=jnp.float64),
+        chordv=jnp.asarray(state.chordv[:nvor], dtype=jnp.float64),
+        lvcomp=jnp.asarray(state.lvcomp[:nvor], dtype=jnp.int32),
+        iysym=int(state.iysym),
+        ysym=float(state.ysym),
+        izsym=int(state.izsym),
+        zsym=float(state.zsym),
+        vrcorec=float(state.vrcorec),
+        vrcorew=float(state.vrcorew),
+        kutta_iv=jnp.asarray(kutta_iv, dtype=jnp.int32),
+        kutta_j1=jnp.asarray(kutta_j1, dtype=jnp.int32),
+        kutta_j2=jnp.asarray(kutta_j2, dtype=jnp.int32),
+        stripoff_iv=jnp.asarray(stripoff_iv, dtype=jnp.int32),
+        snapshot_mach=jnp.asarray(state.mach, dtype=jnp.float64),
     )
 
 

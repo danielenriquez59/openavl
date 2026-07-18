@@ -76,6 +76,9 @@ def setup(state: AVLState) -> AVLState:
             state.enc[:, :nv],
             optimize=True,
         )
+        # Reset V·n flags; no-wake TE rows below clear lvnc again. Stripped
+        # strips rely on enc==0 (from encalc) for a zero RHS even if lvnc is
+        # True after this reset — do not change enc handling without checking.
         state.lvnc[:nv] = True
 
         for n in range(state.nsurf):
@@ -220,7 +223,12 @@ def gdcalc(
     enc_q: np.ndarray,
     gam_q: np.ndarray,
 ) -> AVLState:
-    """Compute defined-variable circulation sensitivities GAM_Q."""
+    """Compute defined-variable circulation sensitivities GAM_Q.
+
+    Contracts body-induced velocities ``wcsrd_u`` with the freestream/rotation
+    vector ``u``, builds the RHS from ``enc_q``, zeroes Kutta / non-V·n rows,
+    and solves the factored AIC for each active defined variable.
+    """
     if nqdef == 0:
         return state
 
@@ -236,7 +244,8 @@ def gdcalc(
     vrot = np.cross(rrot, state.wrot[:, np.newaxis], axis=0)
     active_be = lvalbe & lvnc
     u = np.concatenate((state.vinf, state.wrot))
-    vq = np.einsum("kin,j->ki", state.wcsrd_u[:, :nvor, :6], u)
+    # Contract over the unit-flow index n (not an outer sum of both operands).
+    vq = np.einsum("kin,n->ki", state.wcsrd_u[:, :nvor, :6], u)
     vq[:, active_be] += state.vinf[:, np.newaxis] + vrot[:, active_be]
 
     gam_q[:nvor, active] = -np.einsum(
@@ -244,7 +253,10 @@ def gdcalc(
         enc_q[:, :nvor, active],
         vq,
     )
-    gam_q[inactive][:, active] = 0.0
+    # Boolean row indexing returns a copy; use ix_ so the zeroing sticks.
+    inactive_idx = np.flatnonzero(inactive)
+    if inactive_idx.size:
+        gam_q[np.ix_(inactive_idx, active)] = 0.0
 
     _solve_aic_columns(state, gam_q[: state.nvor, active])
 

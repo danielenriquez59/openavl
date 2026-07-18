@@ -124,15 +124,18 @@ if om is not None:
             for n in range(self._ncontrol):
                 _set("CY", f"delcon_{n}", float(jac.CY.delcon[n]))
 
+            # A3 fix: jax.jacrev(run_analysis) differentiates the CM vector (3,)
+            # w.r.t. wrot (3,) and delcon (ncontrol,), so jac.CM.wrot/delcon are
+            # indexed [CM output, input] — index the output first, not the input.
             for i, out in enumerate(("CMx", "CMy", "CMz")):
                 _set(out, "alpha", float(jac.CM.alfa[i]))
                 _set(out, "beta", float(jac.CM.beta[i]))
-                _set(out, "pb2v", float(jac.CM.wrot[0, i]))
-                _set(out, "qc2v", float(jac.CM.wrot[1, i]))
-                _set(out, "rb2v", float(jac.CM.wrot[2, i]))
+                _set(out, "pb2v", float(jac.CM.wrot[i, 0]))
+                _set(out, "qc2v", float(jac.CM.wrot[i, 1]))
+                _set(out, "rb2v", float(jac.CM.wrot[i, 2]))
                 _set(out, "mach", float(jac.CM.mach[i]))
                 for n in range(self._ncontrol):
-                    _set(out, f"delcon_{n}", float(jac.CM.delcon[n, i]))
+                    _set(out, f"delcon_{n}", float(jac.CM.delcon[i, n]))
 
 else:
     # OpenMDAO is optional; import openavl.jax.openmdao only when the dependency is installed.

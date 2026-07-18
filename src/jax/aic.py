@@ -123,7 +123,13 @@ def _vvor_pair(
     """Induced velocity at control point i due to vortex j."""
     ds_y = rv2[1, j] - rv1[1, j]
     ds_z = rv2[2, j] - rv1[2, j]
-    dsyz = jnp.sqrt(ds_y * ds_y + ds_z * ds_z)
+    # Safe-where (A9): jnp.sqrt has an infinite/NaN local derivative at a
+    # zero argument (the classic "safe-norm" issue), so for a genuinely
+    # zero-width vortex, clamp the squared-norm before the sqrt rather than
+    # the sqrt's output, then select the true (zero) value afterward.
+    dsyz_sq = ds_y * ds_y + ds_z * ds_z
+    dsyz_sq_pos = dsyz_sq > 0.0
+    dsyz = jnp.where(dsyz_sq_pos, jnp.sqrt(jnp.where(dsyz_sq_pos, dsyz_sq, 1.0)), 0.0)
 
     rcore_default = 0.0001 * dsyz
     rc1 = vrcorec * chordv[j]
@@ -193,14 +199,14 @@ def _vvor_pair(
     vs = v + vi
     ws = w + wi
 
+    # Mask on the precomputed (NaN-free) geometry condition rather than
+    # scrubbing us/vs/ws post-hoc with isfinite(); the latter still lets a
+    # NaN/Inf local Jacobian from a divide-by-zero upstream poison the
+    # reverse-mode gradient via 0 x NaN even though the primal looks fine.
     valid = jnp.logical_and(jnp.isfinite(dsyz), dsyz != 0.0)
     us = jnp.where(valid, us, 0.0)
     vs = jnp.where(valid, vs, 0.0)
     ws = jnp.where(valid, ws, 0.0)
-
-    us = jnp.where(jnp.isfinite(us), us, 0.0)
-    vs = jnp.where(jnp.isfinite(vs), vs, 0.0)
-    ws = jnp.where(jnp.isfinite(ws), ws, 0.0)
 
     return jnp.array([us, vs, ws])
 
@@ -233,7 +239,11 @@ def vvor_jax(
     # --- Vortex half-span geometry: [nv] quantities broadcast across nc ---
     ds_y = rv2[1] - rv1[1]  # [nv]
     ds_z = rv2[2] - rv1[2]
-    dsyz = jnp.sqrt(ds_y * ds_y + ds_z * ds_z)  # [nv]
+    # Safe-where (A9): see _vvor_pair for why the sqrt argument (not just its
+    # output) must be clamped for a genuinely zero-width vortex.
+    dsyz_sq = ds_y * ds_y + ds_z * ds_z
+    dsyz_sq_pos = dsyz_sq > 0.0
+    dsyz = jnp.where(dsyz_sq_pos, jnp.sqrt(jnp.where(dsyz_sq_pos, dsyz_sq, 1.0)), 0.0)  # [nv]
 
     rcore_default = 0.0001 * dsyz  # [nv]
     rc1 = vrcorec * chordv  # [nv]
@@ -281,8 +291,16 @@ def vvor_jax(
         xave = 0.5 * (rv1[0] + rv2[0])  # [nv]
         yave = yoff - 0.5 * (rv1[1] + rv2[1])
         zave = 0.5 * (rv1[2] + rv2[2])
+        # A14: use a tolerance scaled by the local filament span instead of
+        # exact bit-equality. After differentiable geometry, a control point
+        # on the symmetry plane and its own image midpoint are computed
+        # through different floating-point paths, so bit-equality can fail
+        # by ~1 ulp and pick up a near-singular self-image influence.
+        tol = 1.0e-9 * jnp.maximum(dsyz[None, :], 1.0e-12)
         at_image_mid = (
-            (x == xave[None, :]) & (y == yave[None, :]) & (z == zave[None, :])
+            (jnp.abs(x - xave[None, :]) <= tol)
+            & (jnp.abs(y - yave[None, :]) <= tol)
+            & (jnp.abs(z - zave[None, :]) <= tol)
         )  # [nc, nv]
         lbound_img = jnp.logical_not(
             jnp.logical_and(iysym == 1, at_image_mid)
@@ -325,15 +343,47 @@ def vvor_jax(
     vs = v + vi
     ws = w + wi
 
+    # Mask on the precomputed (NaN-free) geometry condition rather than
+    # scrubbing us/vs/ws post-hoc with isfinite(); see _vvor_pair for why the
+    # post-hoc scrub is an unsafe gradient trap.
     valid = jnp.logical_and(jnp.isfinite(dsyz), dsyz != 0.0)  # [nv]
     us = jnp.where(valid[None, :], us, 0.0)
     vs = jnp.where(valid[None, :], vs, 0.0)
     ws = jnp.where(valid[None, :], ws, 0.0)
-    us = jnp.where(jnp.isfinite(us), us, 0.0)
-    vs = jnp.where(jnp.isfinite(vs), vs, 0.0)
-    ws = jnp.where(jnp.isfinite(ws), ws, 0.0)
 
     return jnp.stack([us, vs, ws], axis=0)  # [3, nc, nv]
+
+
+def rebuild_aicn_from_wc_gam(
+    wc_gam: jnp.ndarray,
+    enc: jnp.ndarray,
+    kutta_iv: jnp.ndarray,
+    kutta_j1: jnp.ndarray,
+    kutta_j2: jnp.ndarray,
+    stripoff_iv: jnp.ndarray,
+) -> jnp.ndarray:
+    """Rebuild the unfactored AIC matrix from influence coefficients and panel normals.
+
+    Mirrors ``core/setup.py``'s AIC assembly: most rows are ``wc_gam . enc``,
+    but Kutta-condition rows (circulation continuity across a lifting
+    surface's trailing edge) are overwritten with a ``0..1..0`` row spanning
+    the strip's vortex indices, and strip-off rows are overwritten with an
+    identity row. ``kutta_iv``/``kutta_j1``/``kutta_j2``/``stripoff_iv`` may be
+    length-0 arrays (no-op ``.at[...]`` update) when a model has no such rows.
+    """
+    aicn = jnp.einsum("kij,ki->ij", wc_gam, enc)
+    nv = aicn.shape[1]
+
+    j_range = jnp.arange(nv)[None, :]  # [1, nv]
+    kutta_rows = (
+        (j_range >= kutta_j1[:, None]) & (j_range <= kutta_j2[:, None])
+    ).astype(jnp.float64)  # [n_kutta, nv]
+    aicn = aicn.at[kutta_iv, :].set(kutta_rows)
+
+    stripoff_rows = (j_range == stripoff_iv[:, None]).astype(jnp.float64)  # [n_stripoff, nv]
+    aicn = aicn.at[stripoff_iv, :].set(stripoff_rows)
+
+    return aicn
 
 
 def srdset_jax(
@@ -347,7 +397,7 @@ def srdset_jax(
     radl: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Initialize body source and doublet strength sensitivities."""
-    pi = 3.14159265
+    pi = jnp.pi
     beta = betm
     nldim = rl.shape[1]
 

@@ -12,9 +12,12 @@ Uses Leishman's R^4 variant of Scully (AKA Burnham-Hallock) core model::
 """
 
 from __future__ import annotations
+import math
 import numpy as np
 
-PI4INV = 0.079577472
+# Exact 1/(4*pi), matching aero/aic.py's PI4INV (B5: the previous truncated
+# literal 0.079577472 carried ~1e-9 relative error relative to this kernel).
+PI4INV = 1 / (4 * math.pi)
 
 try:
     from numba import njit, prange

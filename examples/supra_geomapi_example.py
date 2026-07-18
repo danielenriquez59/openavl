@@ -14,7 +14,6 @@ from openavl import AVLSolver
 
 from supra_geometry import (
     build_supra_aircraft,
-    calculate_aero_accelerations,
     format_vector,
     geometries_dir,
     supra_mass,
@@ -70,7 +69,7 @@ def main():
     print(f"  Cm     : {results['Cm']:.5f}")
     print()
 
-    accelerations = calculate_aero_accelerations(solver)
+    accelerations = solver.get_aero_accel()
 
     print("Aero accelerations from integrated loads")
     print(f"  linear body [x, y, z] : {format_vector(accelerations['linear_acceleration_body'])} m/s^2")

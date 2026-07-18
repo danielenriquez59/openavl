@@ -94,3 +94,39 @@ def test_exec_solve_matches_fortran_ref():
     exec_solve(state, niter=0)
     actual = _extract_outputs(state)
     np.testing.assert_allclose(actual, ref, atol=1e-4)
+
+
+def test_exec_solve_failed_trim_skips_parval_lsen_update():
+    """Exhausted Newton iterations must not set lsen or overwrite parval."""
+    import warnings
+
+    from openavl import AVLSolver
+    from openavl.geometry import Aircraft
+
+    aircraft = Aircraft(name="TrimFail", sref=10.0, cref=1.0, bref=10.0)
+    wing = aircraft.add_wing("W", n_chord=4, n_span=6)
+    wing.add_section(xyzle=[0.0, 0.0, 0.0], chord=1.0).set_airfoil_naca("0012")
+    wing.add_section(xyzle=[0.0, 5.0, 0.0], chord=1.0).set_airfoil_naca("0012")
+
+    # Impossible CL so the Newton loop cannot converge.
+    solver = AVLSolver(aircraft, cl=50.0, beta=0.0, mach=0.0)
+    ir = 0
+    state = solver.state
+    state.parval[C.IPALFA, ir] = -99.0
+    state.parval[C.IPBETA, ir] = -88.0
+    state.parval[C.IPCL, ir] = -77.0
+    state.lsen = False
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        solver.execute_run(max_iter=3)
+
+    msgs = [str(w.message) for w in caught]
+    assert any(
+        ("Trim convergence failed" in m) or ("Trim aborted" in m) for m in msgs
+    ), msgs
+    assert state.lsol is False
+    assert state.lsen is False
+    assert state.parval[C.IPALFA, ir] == pytest.approx(-99.0)
+    assert state.parval[C.IPBETA, ir] == pytest.approx(-88.0)
+    assert state.parval[C.IPCL, ir] == pytest.approx(-77.0)

@@ -130,7 +130,17 @@ def _trefftz_kernel(
     z2: np.ndarray,
     rcore: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Return 2D Biot-Savart (dterm, yterm) arrays with shape (nc, nv)."""
+    """Return 2D Biot-Savart (dterm, yterm) arrays with shape (nc, nv).
+
+    B6 note: when ``rcore`` is given, the squared distance is regularized
+    as ``rsq = hypot(r**2, rcore**2) = sqrt(r**4 + rcore**4)``. This is the
+    same Leishman r^4 core-model variant documented in
+    ``openavl.aero.vortex`` (used there for the horseshoe kernel), rather
+    than AVL's ``r**2 + rcore**2`` Scully/Burnham-Hallock form. It changes
+    induced-drag values slightly vs. AVL for multi-component configurations
+    (the Trefftz core radius is nonzero only across components); see
+    ``openavl.aero.vortex`` for the full core-model discussion.
+    """
     dy1 = y_f[:, np.newaxis] - y1[np.newaxis, :]
     dy2 = y_f[:, np.newaxis] - y2[np.newaxis, :]
     dz1 = z_f[:, np.newaxis] - z1[np.newaxis, :]
@@ -265,14 +275,21 @@ def _accumulate_trefftz_induced(
             )
             vy += cvy
             vz += cvz
-            vy_u -= cvy_u
-            vz_u -= cvz_u
+            # NOTE: the yz-image contribution to gams/gams_u/gams_d/gams_g all
+            # pass through the *same* signed kernel (dterm/yterm already carry
+            # sym_yz via `wt` in _contract_trefftz_kernel), so the sensitivity
+            # accumulation must use the same sign as the primal velocity
+            # accumulation above. An earlier version subtracted these terms,
+            # which is inconsistent with the primal (verified by FD in
+            # tests/core/test_trefftz.py::test_tpforc_yz_image_sensitivity_fd).
+            vy_u += cvy_u
+            vz_u += cvz_u
             if ncontrol and cvy_d is not None:
-                vy_d -= cvy_d
-                vz_d -= cvz_d
+                vy_d += cvy_d
+                vz_d += cvz_d
             if ndesign and cvy_g is not None:
-                vy_g -= cvy_g
-                vz_g -= cvz_g
+                vy_g += cvy_g
+                vz_g += cvz_g
 
     return vy, vz, vy_u, vz_u, vy_d, vz_d, vy_g, vz_g
 
@@ -285,6 +302,12 @@ def tpforc(state: Any) -> None:
     (gams) and wake geometry (Y, Z coordinates of the trailing vortex legs)
     are required. The normalwash in the cross-plane is evaluated over both
     the real and image sides to enforce symmetry boundary conditions.
+
+    When both Y and Z images are active (``iysym·izsym ≠ 0``), OpenAVL
+    accumulates yz-image velocity *and* its ``_u/_d/_g`` sensitivities with
+    the same sign. AVL 3.50 adds the primal contribution but subtracts the
+    sensitivities — an inconsistency OpenAVL deliberately corrects (see
+    ``test_tpforc_yz_image_sensitivity_fd``).
 
     Outputs written back to state:
         clff    -- far-field lift coefficient

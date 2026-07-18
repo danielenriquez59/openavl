@@ -18,6 +18,7 @@ from openavl.jax.geom_jax import (
     snapshot_topology,
     update_geometry,
 )
+from openavl.jax.setup import compute_circulation
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_flow, snapshot_refs
 from openavl.solver import AVLSolver
 
@@ -84,6 +85,38 @@ def test_update_geometry_baseline_match(avl_path: Path) -> None:
     np.testing.assert_allclose(
         np.asarray(updated.circulation.aicn),
         np.asarray(baseline.circulation.aicn),
+        atol=1e-8,
+        rtol=1e-8,
+    )
+
+
+@pytest.mark.reference
+def test_update_geometry_nowake_kutta_rhs_matches_numpy() -> None:
+    """A7: lvnc must stay False on Kutta/strip-off rows after a geometry update.
+
+    ``b737.avl`` has a NOWAKE (``lfwake=False``) fuselage-fin surface, so its
+    solved NumPy ``gam`` enforces Sigma-gamma=0 on the Kutta row. Running the
+    same (no-op) geometry update through the JAX pipeline must reproduce that
+    circulation exactly -- if ``lvnc`` is recomputed from strip degeneracy
+    alone, the Kutta row's RHS is nonzero and gamma is wrong even though the
+    AIC matrix rows are correctly rebuilt.
+    """
+    solver = _build_solver(B737_AVL)
+    state = solver.state
+    baseline = snapshot_analysis_geometry(state)
+    topo = snapshot_topology(state, solver.model)
+    params = design_params_from_state(state, solver.model)
+    flow = snapshot_flow(state)
+    refs = snapshot_refs(state)
+
+    assert topo.kutta_iv.shape[0] > 0, "expected b737.avl to exercise a NOWAKE Kutta row"
+
+    updated = update_geometry(topo, params, baseline)
+    gamma_jax = compute_circulation(updated.circulation, flow, refs)
+
+    np.testing.assert_allclose(
+        np.asarray(gamma_jax),
+        np.asarray(state.gam[: state.nvor]),
         atol=1e-8,
         rtol=1e-8,
     )

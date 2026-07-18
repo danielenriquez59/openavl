@@ -176,6 +176,9 @@ def cspacer(
         xsr[ivc] = f0 * xsr0 + f1 * xsr1 + f2 * xsr2
         xcp[ivc] = f0 * xcp0 + f1 * xcp1 + f2 * xcp2
 
+    # Pin panel edges to the chord ends (CSPACER: XPT(1)=0, XPT(NVC+1)=1).
+    # Index 0 is unused 1-based padding; the leading-edge pin must be xpt[1].
     xpt[0] = 0.0
+    xpt[1] = 0.0
     xpt[nvc + 1] = 1.0
     return xpt, xvr, xsr, xcp

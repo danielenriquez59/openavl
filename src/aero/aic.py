@@ -719,7 +719,7 @@ def srdset(
     Sets strengths of source+doublet line segments for six unit flow components:
     three unit (X,Y,Z) freestream and three unit (X,Y,Z) rotations.
     """
-    pi = 3.14159265
+    pi = math.pi
     beta = betm
 
     if src_u is None:
@@ -730,6 +730,9 @@ def srdset(
     for ib in range(nbody):
         l1b = int(lfrst[ib])
         l2b = l1b + nl[ib] - 1
+        # Use the body's actual last node. Fortran SRDSET reads RL(1,L1+NL),
+        # one past the last node (out-of-bounds); that only affects the
+        # SDFAC=0.5 on-symmetry-plane test in pathological cases.
         blen = np.abs(rl[0, l2b] - rl[0, l1b])
         sdfac = 1.0
         if iysym == 1 and rl[1, l1b] <= 0.001 * blen:

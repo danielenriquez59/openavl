@@ -87,3 +87,55 @@ def test_control_derivatives_are_dicts():
     assert len(derivs.CL_d) == solver.state.ncontrol
     for name in solver.state.control_names:
         assert name in derivs.CL_d
+
+
+@pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
+@pytest.mark.skipif(not FIXTURE_PATH.is_file(), reason="derivative fixture not found")
+@pytest.mark.reference
+def test_get_control_derivatives_match_fixture():
+    """Control-only matrix matches stability and body fixture entries."""
+    refs = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+    solver = AVLSolver(PLANE_AVL)
+    _configure_derivative_run(solver)
+    solver.execute_run(max_iter=20)
+
+    stab = solver.get_control_derivatives(axis="stability")
+    assert stab.cols == ["CL", "CD", "CY", "Cl", "Cm", "Cn"]
+    assert stab.rows[0] == solver.state.control_names[0]
+    assert stab.values[0][0] == pytest.approx(refs["stability"]["CLd1"], abs=TOL)
+    assert stab.values[0][1] == pytest.approx(refs["stability"]["CDd1"], abs=TOL)
+    assert stab.values[0][2] == pytest.approx(refs["stability"]["CYd1"], abs=TOL)
+    assert stab.values[0][3] == pytest.approx(refs["stability"]["Cld1"], abs=TOL)
+    assert stab.values[0][5] == pytest.approx(refs["stability"]["Cnd1"], abs=TOL)
+
+    body = solver.get_control_derivatives(axis="body")
+    assert body.cols == ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]
+    assert body.rows[0] == solver.state.control_names[0]
+    assert body.values[0][0] == pytest.approx(refs["body"]["CXd1"], abs=TOL)
+    assert body.values[0][1] == pytest.approx(refs["body"]["CYd1"], abs=TOL)
+    assert body.values[0][2] == pytest.approx(refs["body"]["CZd1"], abs=TOL)
+    assert body.values[0][3] == pytest.approx(refs["body"]["Cld1"], abs=TOL)
+    assert body.values[0][5] == pytest.approx(refs["body"]["Cnd1"], abs=TOL)
+
+
+@pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
+def test_get_control_derivatives_rejects_unknown_axis():
+    """Unknown axis values raise ValueError."""
+    solver = AVLSolver(PLANE_AVL)
+    _configure_derivative_run(solver)
+    solver.execute_run(max_iter=20)
+    with pytest.raises(ValueError, match="axis must be"):
+        solver.get_control_derivatives(axis="wind")  # type: ignore[arg-type]
+
+
+@pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
+def test_get_body_axis_derivatives_includes_controls():
+    """Body-axis matrix exposes state and control rows."""
+    solver = AVLSolver(PLANE_AVL)
+    _configure_derivative_run(solver)
+    solver.execute_run(max_iter=20)
+    body = solver.get_body_axis_derivatives()
+    assert body.cols == ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]
+    assert body.rows[:6] == ["u", "v", "w", "p", "q", "r"]
+    assert len(body.rows) == 6 + solver.state.ncontrol
+    assert len(body.values) == len(body.rows)

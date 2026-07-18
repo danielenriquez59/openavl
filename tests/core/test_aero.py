@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -297,3 +298,144 @@ def test_aero_matches_fortran_reference():
     assert_close_array(state.cmstrp[:, 0], ref_cmstrp)
     assert_close_array([state.cdstrp[0], state.cystrp[0], state.clstrp[0]], ref_strip)
     assert_close_array([state.cdvsurf[0], state.cdsurf[0], state.cysurf[0], state.clsurf[0]], ref_surf)
+
+
+class _EnvGVortexState:
+    """Minimal state for ``_accumulate_all_vortex_forces`` (B7 env_g check).
+
+    A single bound vortex (span along y, at the origin) with a freestream
+    purely in z, so the vortex force ``f = veff x g_vec`` points along -x --
+    orthogonal to the baseline normal ``env=[0,0,1]``, which makes the
+    (currently always-zero) ``env_g`` contribution to ``dcp_g`` the
+    *dominant* term rather than a small correction, so the missing-term bug
+    is impossible to miss.
+    """
+
+    def __init__(self, gam_val: float, env_vec: np.ndarray) -> None:
+        self.nvor = 1
+        self.nstrip = 1
+        self.vortex_to_strip = np.array([0], dtype=np.intp)
+        self.rle = np.zeros((3, 1), dtype=np.float64)
+        self.chord = np.array([1.0], dtype=np.float64)
+        self.wstrip = np.array([1.0], dtype=np.float64)
+        self.ensy = np.array([0.0], dtype=np.float64)
+        self.ensz = np.array([1.0], dtype=np.float64)
+        self.lstripoff = np.zeros(1, dtype=bool)
+        self.rv1 = np.array([[0.0], [-0.5], [0.0]], dtype=np.float64)
+        self.rv2 = np.array([[0.0], [0.5], [0.0]], dtype=np.float64)
+        self.rv = np.zeros((3, 1), dtype=np.float64)
+        self.xyzref = np.zeros(3, dtype=np.float64)
+        self.wrot = np.zeros(3, dtype=np.float64)
+        self.vinf = np.array([0.0, 0.0, 1.0], dtype=np.float64)
+        self.env = np.asarray(env_vec, dtype=np.float64).reshape(3, 1)
+        self.dxv = np.array([1.0], dtype=np.float64)
+        self.dcp = np.zeros(1, dtype=np.float64)
+        self.dcp_u = np.zeros((1, NUMAX), dtype=np.float64)
+        self.dcp_d = np.zeros((1, 1), dtype=np.float64)
+        self.dcp_g = np.zeros((1, 1), dtype=np.float64)
+        self._gam = np.array([gam_val], dtype=np.float64)
+
+    def dcp_at(self, gam_val: float, env_vec: np.ndarray, *, gam_g: float = 0.0, env_g_true: np.ndarray | None = None):
+        """Run ``_accumulate_all_vortex_forces`` and return ``(dcp, dcp_g)``."""
+        from openavl.aero.forces import _accumulate_all_vortex_forces
+
+        self.env = np.asarray(env_vec, dtype=np.float64).reshape(3, 1)
+        gam = np.array([gam_val], dtype=np.float64)
+        gam_u = np.zeros((1, NUMAX), dtype=np.float64)
+        gam_d = np.zeros((1, 1), dtype=np.float64)
+        gam_g_arr = np.array([[gam_g]], dtype=np.float64)
+        vv = np.zeros((3, 1), dtype=np.float64)
+        vv_u = np.zeros((3, 1, NUMAX), dtype=np.float64)
+        vv_d = np.zeros((3, 1, 1), dtype=np.float64)
+        vv_g = np.zeros((3, 1, 1), dtype=np.float64)
+        wv = np.zeros((3, 1), dtype=np.float64)
+        wv_u = np.zeros((3, 1, NUMAX), dtype=np.float64)
+        wv_d = np.zeros((3, 1, 1), dtype=np.float64)
+        wv_g = np.zeros((3, 1, 1), dtype=np.float64)
+        env_d = np.zeros((3, 1, 1), dtype=np.float64)
+        env_g = np.zeros((3, 1, 1), dtype=np.float64)
+        if env_g_true is not None:
+            env_g[:, 0, 0] = env_g_true
+        _accumulate_all_vortex_forces(
+            self, NUMAX, 0, 1,
+            gam, gam_u, gam_d, gam_g_arr,
+            vv, vv_u, vv_d, vv_g,
+            wv, wv_u, wv_d, wv_g,
+            env_d, env_g, False,
+        )
+        return float(self.dcp[0]), float(self.dcp_g[0, 0])
+
+
+@pytest.mark.xfail(
+    reason=(
+        "B7: env_g (bound-vortex normal-vector sensitivity to design "
+        "variables) is always zero -- see the 'term2 uses env_g' comment in "
+        "aero/forces.py -- so dcp_g misses the normal-rotation term for any "
+        "twist-type design variable. Remove this xfail once env_g is "
+        "populated in geometry.py."
+    ),
+    strict=True,
+)
+def test_dcp_g_matches_fd_for_twist_design_variable():
+    """FD dcp w.r.t. a twist design variable must match the analytic dcp_g.
+
+    Models a design variable that rotates the bound-vortex normal about the
+    span axis (``env(g) = [sin(g), 0, cos(g)]``, a "twist") while also
+    linearly perturbing the circulation (``gam(g) = gam0 + gam_g0 * g``, the
+    part already captured via ``gam_g``/``enc_g``). The true d(dcp)/dg at
+    g=0 includes both the ``env * fgam_g`` term (already implemented) and
+    the ``env_g * fgam`` term (currently always zero); central finite
+    differences of the actual primal ``dcp`` expose the second term.
+    """
+    gam0 = 0.5
+    gam_g0 = 0.2
+    env0 = np.array([0.0, 0.0, 1.0])
+
+    probe = _EnvGVortexState(gam0, env0)
+
+    eps = 1.0e-6
+
+    def gam_of(g: float) -> float:
+        return gam0 + gam_g0 * g
+
+    def env_of(g: float) -> np.ndarray:
+        return np.array([math.sin(g), 0.0, math.cos(g)])
+
+    dcp_plus, _ = probe.dcp_at(gam_of(eps), env_of(eps))
+    dcp_minus, _ = probe.dcp_at(gam_of(-eps), env_of(-eps))
+    dcp_g_fd = (dcp_plus - dcp_minus) / (2.0 * eps)
+
+    _, dcp_g_today = probe.dcp_at(gam0, env0, gam_g=gam_g0, env_g_true=None)
+    np.testing.assert_allclose(dcp_g_today, dcp_g_fd, rtol=1e-6, atol=1e-9)
+
+
+def test_dcp_g_matches_fd_once_env_g_is_supplied():
+    """Sanity check: supplying the true env_g fixes the B7 gap.
+
+    Same setup as ``test_dcp_g_matches_fd_for_twist_design_variable``, but
+    passing the correct (hand-derived) ``env_g`` into
+    ``_accumulate_all_vortex_forces`` shows the formula itself is right --
+    only the missing upstream population of ``env_g`` (in geometry.py) needs
+    to be fixed.
+    """
+    gam0 = 0.5
+    gam_g0 = 0.2
+    env0 = np.array([0.0, 0.0, 1.0])
+    env_g0_true = np.array([1.0, 0.0, 0.0])
+
+    probe = _EnvGVortexState(gam0, env0)
+
+    eps = 1.0e-6
+
+    def gam_of(g: float) -> float:
+        return gam0 + gam_g0 * g
+
+    def env_of(g: float) -> np.ndarray:
+        return np.array([math.sin(g), 0.0, math.cos(g)])
+
+    dcp_plus, _ = probe.dcp_at(gam_of(eps), env_of(eps))
+    dcp_minus, _ = probe.dcp_at(gam_of(-eps), env_of(-eps))
+    dcp_g_fd = (dcp_plus - dcp_minus) / (2.0 * eps)
+
+    _, dcp_g_fixed = probe.dcp_at(gam0, env0, gam_g=gam_g0, env_g_true=env_g0_true)
+    np.testing.assert_allclose(dcp_g_fixed, dcp_g_fd, rtol=1e-6, atol=1e-9)

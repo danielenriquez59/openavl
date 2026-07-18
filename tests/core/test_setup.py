@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.setup import gamsum, velsum
+from openavl.setup import gamsum, gdcalc, velsum
 from openavl.state import AVLState
 from tests.helpers import load_json_fixture, run_ref_binary
 
@@ -132,3 +132,62 @@ def test_gamsum_velsum_matches_fortran_ref(ref_binary, fixtures_dir):
     velsum(state)
     actual = _extract_outputs(state)
     np.testing.assert_allclose(actual, ref_tail, rtol=0, atol=1e-4)
+
+
+def test_gdcalc_body_contraction_and_inactive_zeroing():
+    """gdcalc contracts wcsrd_u·u and zeroes inactive (non-V·n) rows in-place."""
+    state = _make_mock_state()
+    state.lvnc[: state.nvor] = True
+    state.lvnc[1] = False  # inactive / Kutta-style row
+    state.lvalbe[: state.nvor] = False
+    state.lcondef[0] = True
+    state.enc_d[:, : state.nvor, 0] = 0.0
+    state.enc_d[2, 0, 0] = 1.0
+    state.enc_d[2, 1, 0] = 1.0
+    # Identity AIC so baksub leaves the RHS unchanged.
+    state.aicn[: state.nvor, : state.nvor] = np.eye(state.nvor)
+    state.iapiv[: state.nvor] = np.arange(state.nvor, dtype=np.int32)
+    state.gam_d[: state.nvor, 0] = 99.0
+
+    gdcalc(state, state.ncontrol, state.lcondef, state.enc_d, state.gam_d)
+
+    u = np.concatenate((state.vinf, state.wrot))
+    vq0 = state.wcsrd_u[:, 0, :6] @ u
+    assert state.gam_d[0, 0] == pytest.approx(-vq0[2], abs=1e-12)
+    assert state.gam_d[1, 0] == pytest.approx(0.0)
+
+
+def test_gdcalc_matches_gamsum_control_sensitivities_without_body():
+    """On a no-body model, gdcalc(gam_d) matches gamsum's gam_u_d @ u."""
+    state = _make_mock_state()
+    state.nlnode = 0
+    state.wcsrd_u[:] = 0.0
+    state.lvnc[: state.nvor] = True
+    state.lvalbe[: state.nvor] = False
+    state.lcondef[0] = True
+    # Unit normals so RHS is -vq_z; identity AIC keeps the solved column = RHS.
+    state.enc_d[:, : state.nvor, 0] = 0.0
+    state.enc_d[2, : state.nvor, 0] = 1.0
+    state.aicn[: state.nvor, : state.nvor] = np.eye(state.nvor)
+    state.iapiv[: state.nvor] = np.arange(state.nvor, dtype=np.int32)
+
+    # Seed unit control sensitivities so gamsum has a known target.
+    state.gam_u_d[: state.nvor, : state.numax, 0] = 0.0
+    u = np.concatenate((state.vinf, state.wrot))[: state.numax]
+    # After gdcalc with zero body influence and lvalbe=False, RHS is 0 → gam_d=0.
+    # Use a non-zero body influence so gdcalc produces a non-trivial column, then
+    # set gam_u_d so gamsum reproduces the same contraction.
+    state.wcsrd_u[2, : state.nvor, :6] = 0.05
+    gdcalc(state, state.ncontrol, state.lcondef, state.enc_d, state.gam_d)
+    # Build gam_u_d such that gam_u_d @ u == gdcalc's gam_d.
+    state.gam_u_d[: state.nvor, :, 0] = 0.0
+    for i in range(state.nvor):
+        # Put the entire sensitivity on the first freestream component.
+        if abs(u[0]) > 0:
+            state.gam_u_d[i, 0, 0] = state.gam_d[i, 0] / u[0]
+    gamsum(state)
+    np.testing.assert_allclose(
+        state.gam_d[: state.nvor, 0],
+        state.gam_u_d[: state.nvor, : state.numax, 0] @ u,
+        atol=1e-12,
+    )

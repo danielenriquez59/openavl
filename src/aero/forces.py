@@ -137,7 +137,9 @@ def bdforc(state: Any) -> Any:
         veff1 = state.vinf[1] + vrot1
         veff2 = state.vinf[2] + vrot2
 
-        # set VEFF sensitivities to freestream,rotation components
+        # VEFF_x = (VINF_x + VROT_x)/BETM, so all x-row sensitivities carry 1/BETM.
+        # AVL omits 1/BETM on VEFF_U(1,1) and on the rotation x-entries; OpenAVL
+        # uses the consistent calculus (matches JAX AD through the primal).
         veff_u = np.zeros((3, 6, nseg), dtype=np.float64)
         veff_u[0, 0, :] = 1.0 / betm
         veff_u[1, 1, :] = 1.0
@@ -145,10 +147,10 @@ def bdforc(state: Any) -> Any:
         veff_u[0, 3, :] = 0.0
         veff_u[1, 3, :] = rrot2
         veff_u[2, 3, :] = -rrot1
-        veff_u[0, 4, :] = -rrot2
+        veff_u[0, 4, :] = -rrot2 / betm
         veff_u[1, 4, :] = 0.0
         veff_u[2, 4, :] = rrot0
-        veff_u[0, 5, :] = rrot1
+        veff_u[0, 5, :] = rrot1 / betm
         veff_u[1, 5, :] = -rrot0
         veff_u[2, 5, :] = 0.0
 
@@ -637,6 +639,10 @@ def sfforc(state: Any) -> Any:
 
     When ``state.clmax_surf[isurf] > 0``, strip forces on that surface are
     scaled so local ``cl_lstrp`` does not exceed the limit (OpenAVL extension).
+    The same scale is applied to strip sensitivity arrays (``c*st_u/_d/_g``,
+    ``cnc_*``, ``cdv_lstrp``) so Newton trim Jacobians and stability
+    derivatives stay consistent with the clipped residuals. The clip is
+    non-smooth at the boundary (kink in the derivative).
     """
     numax    = state.numax
     ncontrol = state.ncontrol
@@ -1086,6 +1092,32 @@ def sfforc(state: Any) -> Any:
         state.ca_lstrp[js] *= scale
         state.clt_lstrp[js] *= scale
         state.cla_lstrp[js] *= scale
+        # Scale sensitivities with the same factor so totals/Jacobians match.
+        state.cnc[js] *= scale
+        state.cdv_lstrp[js] *= scale
+        state.cdst_a[js] *= scale
+        state.cyst_a[js] *= scale
+        state.clst_a[js] *= scale
+        state.cnc_u[js, :numax] *= scale[:, np.newaxis]
+        state.cdst_u[js, :numax] *= scale[:, np.newaxis]
+        state.cyst_u[js, :numax] *= scale[:, np.newaxis]
+        state.clst_u[js, :numax] *= scale[:, np.newaxis]
+        state.cfst_u[:, js, :numax] *= scale[np.newaxis, :, np.newaxis]
+        state.cmst_u[:, js, :numax] *= scale[np.newaxis, :, np.newaxis]
+        if ncontrol:
+            state.cnc_d[js, :ncontrol] *= scale[:, np.newaxis]
+            state.cdst_d[js, :ncontrol] *= scale[:, np.newaxis]
+            state.cyst_d[js, :ncontrol] *= scale[:, np.newaxis]
+            state.clst_d[js, :ncontrol] *= scale[:, np.newaxis]
+            state.cfst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
+            state.cmst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
+        if ndesign:
+            state.cnc_g[js, :ndesign] *= scale[:, np.newaxis]
+            state.cdst_g[js, :ndesign] *= scale[:, np.newaxis]
+            state.cyst_g[js, :ndesign] *= scale[:, np.newaxis]
+            state.clst_g[js, :ndesign] *= scale[:, np.newaxis]
+            state.cfst_g[:, js, :ndesign] *= scale[np.newaxis, :, np.newaxis]
+            state.cmst_g[:, js, :ndesign] *= scale[np.newaxis, :, np.newaxis]
 
     # Surface forces and moments summed from strip forces
     for isurf in range(state.nsurf):

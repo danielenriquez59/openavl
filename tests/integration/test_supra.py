@@ -45,20 +45,7 @@ def build_supra_solver() -> AVLSolver:
 pytestmark = pytest.mark.integration
 
 @pytest.mark.reference
-def test_supra_alpha_direct():
-    """Trim alpha to CL=0.7 with supra.run moment constraints."""
-    solver = build_supra_solver()
-    solver.set_constraint("alpha", "cl", 0.7)
-    solver.execute_run(max_iter=20)
-    results = solver.get_results()
-
-    assert results["converged"]
-    assert results["CL"] == pytest.approx(0.7, abs=TOL_CL)
-    assert results["alpha_deg"] == pytest.approx(REF_ALPHA_BY_CL[0.7], abs=TOL_ALPHA)
-
-
-@pytest.mark.reference
-@pytest.mark.parametrize("cl", [0.5, 0.35, 0.2, 0.1], ids=[f"cl_{c}" for c in [0.5, 0.35, 0.2, 0.1]])
+@pytest.mark.parametrize("cl", [0.7, 0.5, 0.35, 0.2, 0.1], ids=[f"cl_{c}" for c in [0.7, 0.5, 0.35, 0.2, 0.1]])
 def test_supra_cl_sweep(cl: float):
     """CL sweep with alpha trimmed to target CL and supra.run moment constraints."""
     solver = build_supra_solver()
