@@ -5,7 +5,7 @@
 import { AircraftViewer3D } from "./viewer3d.js";
 import { initPlots, updateTrefftzPlot, updateEigenmodesPlot } from "./plots.js";
 
-const DEBOUNCE_MS = 120;
+const DEBOUNCE_MS = 500;
 const STABILITY_ROWS = ["CL", "CD", "CY", "Cl", "Cm", "Cn"];
 const STABILITY_COLS = ["a", "b", "p", "q", "r"];
 const MASS_FIELDS = ["mass", "xcg", "ycg", "zcg", "ixx", "iyy", "izz", "ixy", "ixz", "iyz"];
@@ -130,18 +130,33 @@ function displayControlDerivValue(raw) {
 
 /**
  * Toggle collapsible panel bodies when a panel header is clicked.
+ *
+ * Native ``<select>`` menus often emit a trailing click on the header after an
+ * option is chosen. Suppress that ghost click so axis/unit dropdowns can update
+ * the panel body without immediately collapsing it.
  */
 function initCollapsiblePanels() {
   document.querySelectorAll(".panel").forEach((panel) => {
     const header = panel.querySelector(".panel-header");
     if (!header) return;
 
-    header.addEventListener("click", () => {
-      panel.classList.toggle("collapsed");
-    });
+    let suppressCollapseUntil = 0;
 
     header.querySelectorAll("select, button, input, textarea, a").forEach((el) => {
-      el.addEventListener("click", (ev) => ev.stopPropagation());
+      for (const type of ["pointerdown", "mousedown", "click"]) {
+        el.addEventListener(type, (ev) => ev.stopPropagation());
+      }
+      if (el instanceof HTMLSelectElement) {
+        el.addEventListener("change", () => {
+          suppressCollapseUntil = performance.now() + 500;
+        });
+      }
+    });
+
+    header.addEventListener("click", (ev) => {
+      if (performance.now() < suppressCollapseUntil) return;
+      if (ev.target.closest("select, button, input, textarea, a")) return;
+      panel.classList.toggle("collapsed");
     });
   });
 }
@@ -220,7 +235,7 @@ function requestExecution(command = { type: "solve" }, state = captureEditableSt
   send({ ...command, case_id: caseId, solve_id: solveId });
 }
 
-/** Schedule a debounced solve request (120 ms). */
+/** Schedule a debounced solve request (500 ms) so typing can finish first. */
 function scheduleSolve() {
   clearTimeout(solveDebounce);
   solveDebounce = setTimeout(() => requestExecution(), DEBOUNCE_MS);
@@ -1345,6 +1360,7 @@ function handleMessage(msg) {
           bref: msg.bref,
         });
       }
+      viewer.updateWake(msg.wake_3d ?? { surfaces: [] });
       if (msg.cg) viewer.updateCg(msg.cg);
       break;
 
@@ -1538,10 +1554,12 @@ function bindUI() {
 
   const controlAxis = document.getElementById("control-deriv-axis");
   if (controlAxis) {
-    controlAxis.addEventListener("change", () => {
+    const onControlAxisChange = () => {
       controlDerivAxis = controlAxis.value === "body" ? "body" : "stability";
       updateControlSurface();
-    });
+    };
+    controlAxis.addEventListener("change", onControlAxisChange);
+    controlAxis.addEventListener("input", onControlAxisChange);
   }
 }
 

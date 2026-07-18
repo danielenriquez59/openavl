@@ -15,6 +15,15 @@ SUPRA_MASS = GEOMETRIES_DIR.parent / "mass" / "supra.mass"
 pytestmark = pytest.mark.core
 
 
+def test_avl_solver_import_paths_share_one_class():
+    """All documented import paths expose the canonical solver class."""
+    from openavl import AVLSolver as root_solver
+    from openavl.core.solver import AVLSolver as core_solver
+
+    assert AVLSolver is root_solver
+    assert AVLSolver is core_solver
+
+
 @pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
 def test_get_results_control_deflections():
     """Control deflections are exposed by name in get_results."""

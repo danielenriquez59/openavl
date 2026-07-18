@@ -97,6 +97,57 @@ def _build_surface_mesh(
     return positions, indices, dcp_values
 
 
+def _build_surface_panel_lines(state: AVLState, isurf: int) -> list[float]:
+    """Build explicit chordwise and spanwise aerodynamic panel-edge segments."""
+    positions: list[float] = []
+
+    for j in range(int(state.nstrip)):
+        if int(state.lssurf[j]) != isurf:
+            continue
+
+        i0 = int(state.ijfrst[j])
+        nvc = int(state.nvstrp[j])
+        if nvc <= 0:
+            continue
+
+        leading_edge = (
+            (
+                float(state.rle1[0, j]),
+                float(state.rle1[1, j]),
+                float(state.rle1[2, j]),
+            ),
+            (
+                float(state.rle2[0, j]),
+                float(state.rle2[1, j]),
+                float(state.rle2[2, j]),
+            ),
+        )
+
+        left_le, right_le = leading_edge
+        for ivc in range(nvc):
+            i = i0 + ivc
+            left_te = (
+                float(state.xyn1[0, i]),
+                float(state.xyn1[1, i]),
+                float(0.5 * (state.zlon1[i] + state.zupn1[i])),
+            )
+            right_te = (
+                float(state.xyn2[0, i]),
+                float(state.xyn2[1, i]),
+                float(0.5 * (state.zlon2[i] + state.zupn2[i])),
+            )
+
+            # Every panel is emitted as a closed loop. Shared edges are
+            # intentionally repeated so adjacent panels remain explicit.
+            positions.extend((*left_le, *right_le))
+            positions.extend((*right_le, *right_te))
+            positions.extend((*right_te, *left_te))
+            positions.extend((*left_te, *left_le))
+            left_le, right_le = left_te, right_te
+
+    return positions
+
+
 def _build_body_mesh(state: AVLState, ibody: int) -> tuple[list[float], list[int]]:
     """Build a coarse tube mesh for one fuselage body from solver nodes."""
     positions: list[float] = []
@@ -192,6 +243,7 @@ def model_to_geometry(
             isurf,
             include_dcp=include_dcp and int(state.nvor) > 0,
         )
+        panel_lines = _build_surface_panel_lines(state, isurf)
         if not positions:
             continue
         entry: dict[str, Any] = {
@@ -199,6 +251,7 @@ def model_to_geometry(
             "color": _surface_color(labels[isurf], comp, isurf),
             "positions": positions,
             "indices": indices,
+            "panel_lines": panel_lines,
         }
         if dcp_values is not None:
             entry["dcp"] = dcp_values

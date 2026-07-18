@@ -17,9 +17,10 @@ import numpy as np
 from openavl import constants as C
 from openavl.core.reporting import nasa_dir, reported_totals
 from openavl.core.solver import AVLSolver
-from openavl.fileio.mass import MassProperties, _apply_mass_properties, masini, masput, parse_mass_text, unitset
+from openavl.core.solver.initialization import apply_parameter_options
+from openavl.fileio.mass import MassProperties, _apply_mass_properties, masput, parse_mass_text, unitset
 from openavl.fileio.parser import AVLModel, normalize_airfoil_path, parse_avl, parse_xy_coords_text, prepare_model
-from openavl.geom.geometry import build_geometry, solver_surface_name
+from openavl.geom.geometry import solver_surface_name
 from openavl.core.state import AVLState
 from openavl.web.geometry_export import model_to_geometry
 
@@ -186,24 +187,13 @@ def _create_solver(
     **state_options: Any,
 ) -> AVLSolver:
     """Construct an :class:`AVLSolver` from parsed model data without a geometry file."""
-    solver = object.__new__(AVLSolver)
-    solver.debug = debug
-    solver.geo_file = None
-    solver.mass_file = None
-    solver.model = model
-    solver.state = AVLState.from_model(model, debug=debug, **state_options)
-    build_geometry(solver.state, model)
-    solver.state.lgeo = True
-    solver.state.lenc = True
-
-    masini(solver.state)
-    solver._apply_default_mass_parameters()
+    solver = AVLSolver._from_model(model, debug=debug, **state_options)
     if mass_props is not None and mass_props.loaded:
         _apply_mass_properties(solver.state, mass_props)
         unitset(solver.state)
         masput(solver.state, 0, 0)
         solver.model.mass = mass_props
-    solver._apply_parameter_options(state_options)
+    apply_parameter_options(solver, state_options)
     return solver
 
 
@@ -379,6 +369,67 @@ def _build_lift_distribution_3d(solver: AVLSolver) -> dict[str, Any]:
     return {"surfaces": surfaces}
 
 
+def _build_wake_3d(solver: AVLSolver) -> dict[str, Any]:
+    """Build trailing-edge wake filaments for the web viewer overlay."""
+    state = solver.state
+    nsurf = int(state.nsurf)
+    if nsurf <= 0:
+        return {"surfaces": []}
+
+    direction = np.asarray(state.vinf, dtype=np.float64).reshape(-1)[:3]
+    direction_magnitude = float(np.linalg.norm(direction))
+    if direction.size < 3 or direction_magnitude <= np.finfo(np.float64).eps:
+        direction = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+    else:
+        direction = direction / direction_magnitude
+
+    wake_offset = 1.5 * float(state.bref) * direction
+    labels = _surface_labels(solver)
+    surfaces: list[dict[str, Any]] = []
+
+    for isurf in range(nsurf):
+        lfwake = getattr(state, "lfwake", None)
+        if lfwake is not None and not bool(lfwake[isurf]):
+            continue
+
+        j0 = int(state.jfrst[isurf])
+        nj = int(state.nj[isurf])
+        filaments: list[dict[str, float]] = []
+
+        for j in range(j0, j0 + nj):
+            if bool(state.lstripoff[j]) or float(state.wstrip[j]) == 0.0:
+                continue
+
+            trailing_edge_points = (
+                (
+                    float(state.rle1[0, j] + state.chord1[j]),
+                    float(state.rle1[1, j]),
+                    float(state.rle1[2, j]),
+                ),
+                (
+                    float(state.rle2[0, j] + state.chord2[j]),
+                    float(state.rle2[1, j]),
+                    float(state.rle2[2, j]),
+                ),
+            )
+            for x0, y0, z0 in trailing_edge_points:
+                filaments.append(
+                    {
+                        "x0": x0,
+                        "y0": y0,
+                        "z0": z0,
+                        "x1": x0 + float(wake_offset[0]),
+                        "y1": y0 + float(wake_offset[1]),
+                        "z1": z0 + float(wake_offset[2]),
+                    }
+                )
+
+        if filaments:
+            surfaces.append({"name": labels[isurf], "filaments": filaments})
+
+    return {"surfaces": surfaces}
+
+
 def _build_trefftz_surface(
     state: AVLState,
     isurf: int,
@@ -438,6 +489,7 @@ def _build_trefftz_data(solver: AVLSolver) -> dict[str, Any]:
             "cref": float(state.cref),
             "bref": float(state.bref),
             "lift_3d": {"surfaces": []},
+            "wake_3d": {"surfaces": []},
             "cg": _cg_payload(solver),
         }
 
@@ -458,11 +510,13 @@ def _build_trefftz_data(solver: AVLSolver) -> dict[str, Any]:
             surfaces.append(entry)
 
     lift_3d = _build_lift_distribution_3d(solver)
+    wake_3d = _build_wake_3d(solver)
     return {
         "surfaces": surfaces,
         "cref": cref,
         "bref": float(state.bref),
         "lift_3d": lift_3d,
+        "wake_3d": wake_3d,
         "cg": _cg_payload(solver),
     }
 

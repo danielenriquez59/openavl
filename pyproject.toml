@@ -42,6 +42,7 @@ packages = [
     "openavl.aero",
     "openavl.analysis",
     "openavl.core",
+    "openavl.core.solver",
     "openavl.fileio",
     "openavl.geom",
     "openavl.geometry",
