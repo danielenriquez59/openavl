@@ -97,6 +97,19 @@ def _is_keyword_line(line: str) -> bool:
     return t[:4] in KEYWORD_PREFIXES
 
 
+def _looks_like_file_path(line: str) -> bool:
+    """Return True when a line looks like a filesystem path, not an AVL keyword.
+
+    AVL keywords are matched by a 4-character prefix, so a next-line path such as
+    ``airfoils/GOE316.dat`` would otherwise be mistaken for the ``AIRF`` keyword.
+    """
+    token = strip_inline_comment(line).strip().split()
+    if not token:
+        return False
+    first = token[0]
+    return any(ch in first for ch in ("/", "\\", "."))
+
+
 @dataclass
 class ControlDef:
     name: str = "CTRL"
@@ -458,7 +471,9 @@ def parse_avl(text: str) -> AVLModel:
                             if normalized:
                                 break
                             continue
-                        if _is_keyword_line(probe):
+                        # Path-like lines (e.g. airfoils/foo.dat) can share the
+                        # AIRF prefix; treat those as AFIL paths, not keywords.
+                        if _is_keyword_line(probe) and not _looks_like_file_path(probe):
                             normalized = ""
                             break
                         normalized = normalize_airfoil_path(probe)

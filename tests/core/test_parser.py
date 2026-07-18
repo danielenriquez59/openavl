@@ -40,6 +40,34 @@ def test_parse_inline_comments_and_afil():
     assert model.airfoil_files == ["airfoils/wing.dat"]
 
 
+def test_parse_afile_next_line_path_under_airfoils_dir():
+    """Next-line AFILE paths under ``airfoils/`` must not be read as AIRF."""
+    text = "\n".join(
+        [
+            "Test Aircraft",
+            "0.0",
+            "0 0 0",
+            "10 2 12",
+            "0 0 0",
+            "SURFACE",
+            "Wing",
+            "3 1 0 1",
+            "SECTION",
+            "0 0 0 1.2 2.0 7 1",
+            "AFILE",
+            r"airfoils\GOE316.dat",
+            "SECTION",
+            "1 2 0 0.8 1.0 1 1",
+            "AFILE",
+            "airfoils/GOE316.dat",
+        ]
+    )
+    model = parse_avl(text)
+    assert model.surfaces[0].sections[0].airfoil_file == r"airfoils\GOE316.dat"
+    assert model.surfaces[0].sections[1].airfoil_file == "airfoils/GOE316.dat"
+    assert model.airfoil_files == [r"airfoils\GOE316.dat", "airfoils/GOE316.dat"]
+
+
 def test_parse_plane_avl():
     assert PLANE_AVL.is_file(), f"missing test geometry: {PLANE_AVL}"
     model = parse_avl_file(PLANE_AVL)
