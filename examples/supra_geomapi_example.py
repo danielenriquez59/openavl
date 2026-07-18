@@ -38,12 +38,7 @@ def main():
         xcg=3.75,
     )
 
-    print("Loaded:", aircraft.name)
-    print(f"  surfaces : {solver.state.nsurf}")
-    print(f"  vortices : {solver.state.nvor}")
-    print(f"  controls : {', '.join(solver.state.control_names)}")
-    print(f"  mass     : {solver.model.mass.mass:.3f} kg")
-    print()
+    solver.print_settings()
 
     # --- 2. Set trim constraints ------------------------------------------------
 
@@ -87,7 +82,7 @@ def main():
     print()
 
     print("Control derivatives (per radian deflection)")
-    for name in solver.state.control_names:
+    for name in derivs.CL_d:
         print(
             f"  {name:8s}  "
             f"CL_d = {derivs.CL_d[name]:8.4f}  "

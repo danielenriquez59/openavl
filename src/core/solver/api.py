@@ -14,6 +14,7 @@ from openavl.geometry.aircraft import Aircraft
 from . import analysis as _analysis
 from . import initialization as _initialization
 from . import results as _results
+from . import settings as _settings
 from . import visualization as _visualization
 
 
@@ -34,11 +35,12 @@ class AVLSolver:
     3. Define trim targets with :meth:`set_constraint`, optionally calling
        :meth:`setup_trim` for level-flight presets.
     4. Run the Newton iteration with :meth:`execute_run`.
-    5. Retrieve coefficients (:meth:`get_results`), aerodynamic accelerations
-       (:meth:`get_aero_accel`), derivatives (:meth:`get_stability_derivatives`),
-       and/or dynamic modes (:meth:`eigenvalues`). Visualize with
-       :meth:`plot_aircraft`, :meth:`plot_lift_distribution`, and
-       :meth:`plot_cp`.
+    5. Inspect geometry and mass with :meth:`print_settings` /
+       :meth:`get_settings`. Retrieve coefficients (:meth:`get_results`),
+       aerodynamic accelerations (:meth:`get_aero_accel`), derivatives
+       (:meth:`get_stability_derivatives`), and/or dynamic modes
+       (:meth:`eigenvalues`). Visualize with :meth:`plot_aircraft`,
+       :meth:`plot_lift_distribution`, and :meth:`plot_cp`.
 
     Attributes
     ----------
@@ -404,6 +406,9 @@ class AVLSolver:
 
     get_results = _results.get_results
     get_aero_accel = _results.get_aero_accel
+
+    get_settings = _settings.get_settings
+    print_settings = _settings.print_settings
 
     get_stability_derivatives = _analysis.get_stability_derivatives
     get_control_derivatives = _analysis.get_control_derivatives
