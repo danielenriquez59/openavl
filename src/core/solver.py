@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 from openavl import constants as C
 
 if TYPE_CHECKING:
@@ -40,10 +42,11 @@ class AVLSolver:
     3. Define trim targets with :meth:`set_constraint`, optionally calling
        :meth:`setup_trim` for level-flight presets.
     4. Run the Newton iteration with :meth:`execute_run`.
-    5. Retrieve coefficients (:meth:`get_results`), derivatives
-       (:meth:`get_stability_derivatives`), and/or dynamic modes
-       (:meth:`eigenvalues`). Visualize with :meth:`plot_aircraft`,
-       :meth:`plot_lift_distribution`, and :meth:`plot_cp`.
+    5. Retrieve coefficients (:meth:`get_results`), aerodynamic accelerations
+       (:meth:`get_aero_accel`), derivatives (:meth:`get_stability_derivatives`),
+       and/or dynamic modes (:meth:`eigenvalues`). Visualize with
+       :meth:`plot_aircraft`, :meth:`plot_lift_distribution`, and
+       :meth:`plot_cp`.
 
     Attributes
     ----------
@@ -456,6 +459,76 @@ class AVLSolver:
             "beta_deg": s.beta / s.dtr,
             "control_deflections": control_deflections,
             "mach": s.mach,
+        }
+
+    def get_aero_accel(self) -> dict[str, Any]:
+        """Return body-axis accelerations derived from integrated aero loads.
+
+        Dimensional force and moment vectors are computed from the latest
+        solved body-axis coefficients, then converted to translational and
+        rotational accelerations with Newton-Euler rigid-body dynamics. These
+        values are post-processed results, not native solver state variables.
+
+        Returns
+        -------
+        dict[str, Any]
+            Dynamic pressure, dimensional body-axis force and moment vectors,
+            linear and rotational body-axis accelerations, mass, and inertia.
+            With SI geometry and mass-file units, linear acceleration is in
+            m/s² and rotational acceleration is in rad/s².
+
+        Raises
+        ------
+        ValueError
+            If the current run-case mass is not positive.
+        numpy.linalg.LinAlgError
+            If the inertia matrix is singular.
+        """
+        s = self.state
+        ir = 0
+        rho = float(s.parval[C.IPRHO, ir])
+        velocity = float(s.parval[C.IPVEE, ir])
+        mass = float(s.parval[C.IPMASS, ir])
+        if mass <= 0.0:
+            raise ValueError("mass must be positive to calculate acceleration")
+
+        inertia = np.array(
+            [
+                [s.parval[C.IPIXX, ir], s.parval[C.IPIXY, ir], s.parval[C.IPIZX, ir]],
+                [s.parval[C.IPIXY, ir], s.parval[C.IPIYY, ir], s.parval[C.IPIYZ, ir]],
+                [s.parval[C.IPIZX, ir], s.parval[C.IPIYZ, ir], s.parval[C.IPIZZ, ir]],
+            ],
+            dtype=np.float64,
+        )
+        reported = reported_totals(s)
+        cl, cm, cn = reported["CM"]
+
+        dynamic_pressure = 0.5 * rho * velocity**2
+        sref = float(s.sref) * s.unitl * s.unitl
+        bref = float(s.bref) * s.unitl
+        cref = float(s.cref) * s.unitl
+        force_body = dynamic_pressure * sref * np.asarray(reported["CF"], dtype=np.float64)
+        moment_body = dynamic_pressure * sref * np.array(
+            [bref * cl, cref * cm, bref * cn],
+            dtype=np.float64,
+        )
+
+        linear_acceleration = force_body / mass
+        omega_body = s.wrot * velocity / s.unitl
+        angular_momentum = inertia @ omega_body
+        rotational_acceleration = np.linalg.solve(
+            inertia,
+            moment_body - np.cross(omega_body, angular_momentum),
+        )
+
+        return {
+            "dynamic_pressure": dynamic_pressure,
+            "force_body": force_body,
+            "moment_body": moment_body,
+            "linear_acceleration_body": linear_acceleration,
+            "rotational_acceleration_body": rotational_acceleration,
+            "mass": mass,
+            "inertia": inertia,
         }
 
     def get_stability_derivatives(self) -> StabilityDerivatives:

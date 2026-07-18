@@ -15,7 +15,7 @@ import numpy as np
 
 from openavl import AVLSolver
 
-from supra_geometry import build_supra_aircraft, calculate_aero_accelerations, geometries_dir, supra_mass
+from supra_geometry import build_supra_aircraft, geometries_dir, supra_mass
 
 # Angle-of-attack sweep: [start, stop, step] in degrees (inclusive of stop).
 AOA_START, AOA_STOP, AOA_STEP = -5, 15, 1
@@ -35,7 +35,7 @@ def run_alpha_sweep(solver, aoa_deg):
         solver.set_variable("alpha", float(alpha))
         solver.execute_run(max_iter=0)
         results = solver.get_results()
-        accelerations = calculate_aero_accelerations(solver)
+        accelerations = solver.get_aero_accel()
         alpha_out[i] = results["alpha_deg"]
         cl_out[i] = results["CL"]
         cd_out[i] = results["CD"]

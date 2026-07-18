@@ -11,7 +11,7 @@ from pathlib import Path
 
 from openavl import AVLSolver
 
-from supra_geometry import calculate_aero_accelerations, format_vector
+from supra_geometry import format_vector
 
 # Paths to the bundled Supra geometry and mass breakdown.
 repo_root = Path(__file__).resolve().parents[1]
@@ -64,7 +64,7 @@ print(f"  CD     : {results['CD']:.4f}")
 print(f"  Cm     : {results['Cm']:.5f}")
 print()
 
-accelerations = calculate_aero_accelerations(solver)
+accelerations = solver.get_aero_accel()
 
 print("Aero accelerations from integrated loads")
 print(f"  linear body [x, y, z] : {format_vector(accelerations['linear_acceleration_body'])} m/s^2")

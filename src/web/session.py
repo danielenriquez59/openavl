@@ -557,27 +557,12 @@ def _build_results_extras(solver: AVLSolver) -> dict[str, Any]:
     ir = 0
     rho = float(state.parval[C.IPRHO, ir])
     velocity = float(state.parval[C.IPVEE, ir])
-    mass = float(state.parval[C.IPMASS, ir])
-    inertia = np.array(
-        [
-            [state.parval[C.IPIXX, ir], state.parval[C.IPIXY, ir], state.parval[C.IPIZX, ir]],
-            [state.parval[C.IPIXY, ir], state.parval[C.IPIYY, ir], state.parval[C.IPIYZ, ir]],
-            [state.parval[C.IPIZX, ir], state.parval[C.IPIYZ, ir], state.parval[C.IPIZZ, ir]],
-        ],
-        dtype=np.float64,
-    )
-    q_pressure = 0.5 * rho * velocity**2
-    sref_d = float(state.sref) * state.unitl * state.unitl
-    bref_d = float(state.bref) * state.unitl
-    cref_d = float(state.cref) * state.unitl
-    force_body = q_pressure * sref_d * np.array(moments["CF"], dtype=np.float64)
-    moment_body = q_pressure * sref_d * np.array([bref_d * cl, cref_d * cm, bref_d * cn], dtype=np.float64)
-    linear_accel = force_body / mass if mass > 0.0 else np.full(3, math.nan, dtype=np.float64)
-    omega_body = state.wrot * velocity / state.unitl
     try:
-        angular_momentum = inertia @ omega_body
-        rotational_accel = np.linalg.solve(inertia, moment_body - np.cross(omega_body, angular_momentum))
-    except np.linalg.LinAlgError:
+        aero_accel = solver.get_aero_accel()
+        linear_accel = aero_accel["linear_acceleration_body"]
+        rotational_accel = aero_accel["rotational_acceleration_body"]
+    except (ValueError, np.linalg.LinAlgError):
+        linear_accel = np.full(3, math.nan, dtype=np.float64)
         rotational_accel = np.full(3, math.nan, dtype=np.float64)
 
     def finite_vector(values: np.ndarray) -> list[float | None]:

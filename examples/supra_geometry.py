@@ -1,75 +1,12 @@
 """Shared Supra 3.4 m F3J geometry built with the OpenAVL Geometry API."""
 
 from pathlib import Path
-from typing import Any
 
-import numpy as np
-
-from openavl import constants as C
 from openavl import Aircraft
 
 repo_root = Path(__file__).resolve().parents[1]
 geometries_dir = repo_root / "tests" / "data" / "avl" / "geometries"
 supra_mass = repo_root / "tests" / "data" / "avl" / "mass" / "supra.mass"
-
-
-def calculate_aero_accelerations(solver: Any) -> dict[str, Any]:
-    """Calculate body-axis accelerations from the latest integrated aero loads.
-
-    The dimensional loads come from the solved total coefficients:
-    ``F = q S CF`` and ``M = q S [b Cl, c Cm, b Cn]``. Translational and
-    rotational accelerations then follow Newton-Euler rigid-body dynamics.
-    """
-    state = solver.state
-    results = solver.get_results()
-    ir = 0
-
-    rho = float(state.parval[C.IPRHO, ir])
-    velocity = float(state.parval[C.IPVEE, ir])
-    mass = float(state.parval[C.IPMASS, ir])
-    if mass <= 0.0:
-        raise ValueError("mass must be positive to calculate acceleration")
-
-    inertia = np.array(
-        [
-            [state.parval[C.IPIXX, ir], state.parval[C.IPIXY, ir], state.parval[C.IPIZX, ir]],
-            [state.parval[C.IPIXY, ir], state.parval[C.IPIYY, ir], state.parval[C.IPIYZ, ir]],
-            [state.parval[C.IPIZX, ir], state.parval[C.IPIYZ, ir], state.parval[C.IPIZZ, ir]],
-        ],
-        dtype=np.float64,
-    )
-
-    q_pressure = 0.5 * rho * velocity**2
-    sref = state.sref * state.unitl * state.unitl
-    bref = state.bref * state.unitl
-    cref = state.cref * state.unitl
-
-    force_coeff = np.array([results["Cx"], results["Cy"], results["Cz"]], dtype=np.float64)
-    moment_coeff = np.array([results["Cl"], results["Cm"], results["Cn"]], dtype=np.float64)
-
-    force_body = q_pressure * sref * force_coeff
-    moment_body = q_pressure * sref * np.array(
-        [bref * moment_coeff[0], cref * moment_coeff[1], bref * moment_coeff[2]],
-        dtype=np.float64,
-    )
-
-    linear_acceleration = force_body / mass
-    omega_body = state.wrot * velocity / state.unitl
-    angular_momentum = inertia @ omega_body
-    rotational_acceleration = np.linalg.solve(
-        inertia,
-        moment_body - np.cross(omega_body, angular_momentum),
-    )
-
-    return {
-        "dynamic_pressure": q_pressure,
-        "force_body": force_body,
-        "moment_body": moment_body,
-        "linear_acceleration_body": linear_acceleration,
-        "rotational_acceleration_body": rotational_acceleration,
-        "mass": mass,
-        "inertia": inertia,
-    }
 
 
 def format_vector(values, precision=3):

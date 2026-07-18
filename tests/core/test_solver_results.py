@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from openavl import constants as C
 from openavl.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 
 SUPRA_AVL = GEOMETRIES_DIR / "supra.avl"
+SUPRA_MASS = GEOMETRIES_DIR.parent / "mass" / "supra.mass"
 
 pytestmark = pytest.mark.core
 
@@ -39,3 +41,47 @@ def test_get_results_moment_scalars():
     assert {"CM", "CM_sa", "CF"}.isdisjoint(results)
     for key in ("Cl", "Cm", "Cn", "Cl_sa", "Cm_sa", "Cn_sa", "Cx", "Cy", "Cz"):
         assert key in results
+
+
+@pytest.mark.skipif(
+    not SUPRA_AVL.is_file() or not SUPRA_MASS.is_file(),
+    reason="supra geometry or mass file not found",
+)
+def test_get_aero_accel_from_integrated_loads():
+    """Aerodynamic accelerations are consistent with dimensional body loads."""
+    solver = AVLSolver(SUPRA_AVL, mass_file=SUPRA_MASS, alpha=5.0, rho=1.225, velocity=12.0)
+    solver.execute_run(max_iter=0)
+
+    acceleration = solver.get_aero_accel()
+
+    assert set(acceleration) == {
+        "dynamic_pressure",
+        "force_body",
+        "moment_body",
+        "linear_acceleration_body",
+        "rotational_acceleration_body",
+        "mass",
+        "inertia",
+    }
+    assert acceleration["force_body"].shape == (3,)
+    assert acceleration["moment_body"].shape == (3,)
+    assert acceleration["linear_acceleration_body"].shape == (3,)
+    assert acceleration["rotational_acceleration_body"].shape == (3,)
+    assert acceleration["inertia"].shape == (3, 3)
+    assert acceleration["mass"] == pytest.approx(solver.state.parval[C.IPMASS, 0])
+    assert acceleration["linear_acceleration_body"] == pytest.approx(
+        acceleration["force_body"] / acceleration["mass"]
+    )
+
+
+@pytest.mark.skipif(
+    not SUPRA_AVL.is_file() or not SUPRA_MASS.is_file(),
+    reason="supra geometry or mass file not found",
+)
+def test_get_aero_accel_requires_positive_mass():
+    """Aerodynamic acceleration requires a positive run-case mass."""
+    solver = AVLSolver(SUPRA_AVL, mass_file=SUPRA_MASS)
+    solver.state.parval[C.IPMASS, 0] = 0.0
+
+    with pytest.raises(ValueError, match="mass must be positive"):
+        solver.get_aero_accel()
