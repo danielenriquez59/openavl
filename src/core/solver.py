@@ -350,6 +350,33 @@ class AVLSolver:
         self.state.icon[iv, 0] = ic
         self.state.conval[ic, 0] = float(value)
 
+    def replace_constraints(self, constraints: list[tuple[str, str, float]]) -> None:
+        """Replace every run-case constraint assignment for the current analysis.
+
+        Variables omitted from ``constraints`` are fixed at zero. This prevents
+        assignments and solved control deflections from a previously applied run
+        case from leaking into a new one. Explicit fixed values can be applied
+        afterward with :meth:`set_variable`.
+
+        Parameters
+        ----------
+        constraints:
+            Complete ``(variable, constraint, value)`` assignments for the run
+            case. Names and values follow :meth:`set_constraint`.
+        """
+        fixed_variables = [
+            "alpha",
+            "beta",
+            "pb/2V",
+            "qc/2V",
+            "rb/2V",
+            *self.state.control_names,
+        ]
+        for variable in fixed_variables:
+            self.set_constraint(variable, variable, 0.0)
+        for variable, constraint, value in constraints:
+            self.set_constraint(variable, constraint, value)
+
     def execute_run(self, max_iter: int = 20) -> None:
         """Run the Newton trim iteration and update solver state.
 

@@ -43,6 +43,25 @@ def test_get_results_moment_scalars():
         assert key in results
 
 
+@pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
+def test_replace_constraints_clears_previous_trim_assignment():
+    """A complete run case fixes variables omitted from its constraint list."""
+    solver = AVLSolver(SUPRA_AVL, alpha=4.0)
+    solver.set_variable("elevator", -3.0)
+    solver.set_constraint("elevator", "cm", 0.0)
+
+    solver.replace_constraints([("alpha", "cl", 0.8)])
+
+    elevator = solver.model.control_map["elevator"]
+    elevator_variable = C.IVTOT + elevator
+    elevator_constraint = C.ICTOT + elevator
+    assert solver.state.icon[C.IVALFA, 0] == C.ICCL
+    assert solver.state.conval[C.ICCL, 0] == pytest.approx(0.8)
+    assert solver.state.icon[elevator_variable, 0] == elevator_constraint
+    assert solver.state.conval[elevator_constraint, 0] == pytest.approx(0.0)
+    assert solver.state.delcon[elevator] == pytest.approx(0.0)
+
+
 @pytest.mark.skipif(
     not SUPRA_AVL.is_file() or not SUPRA_MASS.is_file(),
     reason="supra geometry or mass file not found",

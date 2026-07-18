@@ -34,6 +34,19 @@ let derivDisplayUnit = "per_rad";
 let controlDerivAxis = "stability";
 let selectedRunCaseIndex = -1;
 let controlOptions = [...DEFAULT_CONTROL_OPTIONS];
+let nextSolveId = 1;
+let latestExecutedSnapshot = null;
+let activeModelKey = null;
+const pendingSolves = new Map();
+const SOLVE_RESULT_TYPES = new Set([
+  "cp_update",
+  "results",
+  "stability_derivs",
+  "trefftz_data",
+  "eigen_data",
+  "surface_forces",
+  "hinge_moments",
+]);
 
 const viewer = new AircraftViewer3D(document.getElementById("viewer3d"));
 
@@ -150,12 +163,67 @@ function send(msg) {
   }
 }
 
+/** Capture the editable flight, mass, and constraint values currently shown. */
+function captureEditableState() {
+  const inputs = {};
+  document.querySelectorAll("#flight-form input[data-key]").forEach((input) => {
+    if (input.value.trim() === "") {
+      inputs[input.dataset.key] = null;
+      return;
+    }
+    const value = Number(input.value);
+    if (Number.isFinite(value)) inputs[input.dataset.key] = value;
+  });
+  document.querySelectorAll("#mass-props-grid input[data-mass-key]").forEach((input) => {
+    if (input.value.trim() === "") {
+      inputs[input.dataset.massKey] = null;
+      return;
+    }
+    const value = Number(input.value);
+    if (Number.isFinite(value)) inputs[input.dataset.massKey] = value;
+  });
+  return {
+    inputs,
+    constraints: constraints.map((row) => ({ ...row })),
+  };
+}
+
+/** Return only numeric values that can be applied to the solver. */
+function solverInputs(inputs) {
+  return Object.fromEntries(
+    Object.entries(inputs ?? {}).filter(([, value]) => value !== null && Number.isFinite(Number(value))),
+  );
+}
+
 /**
- * Schedule a debounced solve request (120 ms).
+ * Send a correlated solver execution and remember the exact submitted state.
+ *
+ * @param {Record<string, unknown>} [command]
+ * @param {{inputs: Record<string, number|null>, constraints: Array<Record<string, unknown>>}|null} [state]
  */
+function requestExecution(command = { type: "solve" }, state = captureEditableState()) {
+  const solveId = `solve-${nextSolveId++}`;
+  const entry = selectedRunCaseIndex >= 0 ? runCases[selectedRunCaseIndex] : null;
+  const caseId = command.type === "solve" ? (entry?.id ?? null) : null;
+  pendingSolves.set(solveId, {
+    caseId,
+    state,
+    messages: [],
+  });
+  if (command.type === "solve" && state) {
+    send({
+      type: "apply_run_case",
+      inputs: solverInputs(state.inputs),
+      constraints: state.constraints,
+    });
+  }
+  send({ ...command, case_id: caseId, solve_id: solveId });
+}
+
+/** Schedule a debounced solve request (120 ms). */
 function scheduleSolve() {
   clearTimeout(solveDebounce);
-  solveDebounce = setTimeout(() => send({ type: "solve" }), DEBOUNCE_MS);
+  solveDebounce = setTimeout(() => requestExecution(), DEBOUNCE_MS);
 }
 
 /**
@@ -382,7 +450,6 @@ function renderConstraintRow(row, index) {
     if (constraints.length <= 1) return;
     constraints.splice(index, 1);
     renderAllConstraints();
-    sendConstraint(index, null);
     scheduleSolve();
   });
 
@@ -392,12 +459,6 @@ function renderConstraintRow(row, index) {
       constraint: conSel.value,
       value: Number(valInput.value),
     };
-    send({
-      type: "set_constraint",
-      variable: constraints[index].variable,
-      constraint: constraints[index].constraint,
-      value: constraints[index].value,
-    });
     scheduleSolve();
   };
 
@@ -448,32 +509,22 @@ function resetConstraintsFromModel(meta = {}) {
   renderAllConstraints();
 }
 
-/** Push every constraint row to the server solver session. */
-function syncAllConstraints() {
-  constraints.forEach((_, i) => sendConstraint(i, null));
-}
-
 /**
- * Capture the editable flight, mass, and constraint state as a local run case.
+ * Capture the last successful execution as a local run case.
  *
  * @param {string} name
- * @returns {{ name: string, color: string, inputs: Record<string, number>, constraints: Array<Record<string, unknown>> }}
+ * @returns {Record<string, unknown>}
  */
 function captureRunCase(name) {
-  const inputs = {};
-  document.querySelectorAll("#flight-form input[data-key]").forEach((input) => {
-    const value = Number(input.value);
-    if (Number.isFinite(value)) inputs[input.dataset.key] = value;
-  });
-  document.querySelectorAll("#mass-props-grid input[data-mass-key]").forEach((input) => {
-    const value = Number(input.value);
-    if (Number.isFinite(value)) inputs[input.dataset.massKey] = value;
-  });
+  const current = captureEditableState();
+  const executed = latestExecutedSnapshot
+    ? structuredClone(latestExecutedSnapshot)
+    : { ...current, messages: [] };
   return {
+    id: crypto.randomUUID(),
     name,
     color: RUN_CASE_COLORS[runCases.length % RUN_CASE_COLORS.length],
-    inputs,
-    constraints: constraints.map((row) => ({ ...row })),
+    executed,
   };
 }
 
@@ -533,9 +584,18 @@ function renderRunCasesList() {
     remove.textContent = "×";
     remove.addEventListener("click", (ev) => {
       ev.stopPropagation();
+      const wasActive = index === selectedRunCaseIndex;
       runCases.splice(index, 1);
-      if (selectedRunCaseIndex >= runCases.length) selectedRunCaseIndex = runCases.length - 1;
-      renderRunCasesList();
+      if (!runCases.length) {
+        selectedRunCaseIndex = -1;
+        renderRunCasesList();
+      } else if (wasActive) {
+        selectedRunCaseIndex = -1;
+        selectRunCase(Math.min(index, runCases.length - 1));
+      } else {
+        if (index < selectedRunCaseIndex) selectedRunCaseIndex -= 1;
+        renderRunCasesList();
+      }
     });
 
     row.addEventListener("click", () => selectRunCase(index));
@@ -552,39 +612,39 @@ function renderRunCasesList() {
  */
 function selectRunCase(index) {
   const entry = runCases[index];
-  if (!entry) return;
+  if (!entry?.executed) return;
+  clearTimeout(solveDebounce);
   selectedRunCaseIndex = index;
 
-  for (const [key, value] of Object.entries(entry.inputs ?? {})) {
+  for (const [key, value] of Object.entries(entry.executed.inputs ?? {})) {
     const flightInput = document.querySelector(`#flight-form input[data-key="${key}"]`);
     const massInput = document.querySelector(`#mass-props-grid input[data-mass-key="${key}"]`);
-    setNumericInput(flightInput, value);
-    setNumericInput(massInput, value);
-    send({ type: "set_flight_param", key, value });
+    if (value === null) {
+      if (flightInput) flightInput.value = "";
+      if (massInput) massInput.value = "";
+    } else {
+      setNumericInput(flightInput, value);
+      setNumericInput(massInput, value);
+    }
   }
 
-  constraints.splice(0, constraints.length, ...(entry.constraints ?? []).map((row) => ({ ...row })));
+  constraints.splice(
+    0,
+    constraints.length,
+    ...(entry.executed.constraints ?? []).map((row) => ({ ...row })),
+  );
   renderAllConstraints();
-  constraints.forEach((_, i) => sendConstraint(i, null));
-  renderRunCasesList();
-  scheduleSolve();
-}
-
-/**
- * Notify server of a constraint change or removal.
- *
- * @param {number} index
- * @param {null} _removed
- */
-function sendConstraint(index, _removed) {
-  const row = constraints[index];
-  if (!row) return;
   send({
-    type: "set_constraint",
-    variable: row.variable,
-    constraint: row.constraint,
-    value: row.value,
+    type: "apply_run_case",
+    inputs: solverInputs(entry.executed.inputs),
+    constraints: entry.executed.constraints ?? [],
   });
+  for (const message of entry.executed.messages ?? []) {
+    handleMessage({ ...structuredClone(message), replay: true });
+  }
+  setSolving(false);
+  setStatus("connected", "Connected");
+  renderRunCasesList();
 }
 
 /** Wire flight-condition inputs to `set_flight_param` messages. */
@@ -598,7 +658,6 @@ function bindFlightInputs() {
       if (!Number.isFinite(value)) return;
       const massInput = document.querySelector(`#mass-props-grid input[data-mass-key="${key}"]`);
       setNumericInput(massInput, value);
-      send({ type: "set_flight_param", key, value });
       scheduleSolve();
     });
   });
@@ -613,7 +672,6 @@ function bindMassInputs() {
       if (!key || !Number.isFinite(value)) return;
       const flightInput = document.querySelector(`#flight-form input[data-key="${key}"]`);
       setNumericInput(flightInput, value);
-      send({ type: "set_flight_param", key, value });
       scheduleSolve();
     });
   });
@@ -1117,27 +1175,99 @@ function updateHingeMoments(payload) {
   grid.innerHTML = cells.join("");
 }
 
+/** Return a stable key for detecting when the loaded aircraft has changed. */
+function modelKey(msg) {
+  if (typeof msg.avl_text === "string") return msg.avl_text;
+  const meta = msg.meta ?? {};
+  return JSON.stringify([meta.title, meta.surfaces, meta.strips, meta.vortices]);
+}
+
+/** Return whether a correlated solve message belongs to the visible case. */
+function isVisibleSolveMessage(msg) {
+  if (msg.replay) return true;
+  const activeCase = selectedRunCaseIndex >= 0 ? runCases[selectedRunCaseIndex] : null;
+  if (msg.case_id == null) return activeCase == null;
+  return activeCase?.id === msg.case_id;
+}
+
+/** Save a completed response batch as the case's last successful execution. */
+function completeExecution(msg) {
+  const pending = pendingSolves.get(msg.solve_id);
+  if (!pending) return;
+  pendingSolves.delete(msg.solve_id);
+
+  const state = pending.state ?? captureEditableState();
+  const executed = {
+    inputs: structuredClone(state.inputs),
+    constraints: structuredClone(state.constraints),
+    messages: structuredClone(pending.messages),
+  };
+  const entry = pending.caseId
+    ? runCases.find((candidate) => candidate.id === pending.caseId)
+    : null;
+  if (entry) entry.executed = executed;
+
+  const activeCase = selectedRunCaseIndex >= 0 ? runCases[selectedRunCaseIndex] : null;
+  if ((!pending.caseId && !activeCase) || activeCase?.id === pending.caseId) {
+    latestExecutedSnapshot = structuredClone(executed);
+    setSolving(false);
+    setStatus("connected", "Connected");
+  }
+}
+
 /**
  * Dispatch an incoming WebSocket message by type.
  *
  * @param {Record<string, unknown>} msg
  */
 function handleMessage(msg) {
+  if (msg.type === "solve_complete") {
+    completeExecution(msg);
+    return;
+  }
+
+  if (msg.type === "error" && msg.solve_id) {
+    pendingSolves.delete(msg.solve_id);
+    if (!isVisibleSolveMessage(msg)) return;
+  }
+
+  if (msg.type === "model_loaded" && msg.solve_id && msg.geometry) {
+    const pending = pendingSolves.get(msg.solve_id);
+    if (pending) pending.messages.push({ type: "cp_update", geometry: msg.geometry });
+  }
+
+  if (msg.solve_id && SOLVE_RESULT_TYPES.has(msg.type)) {
+    const pending = pendingSolves.get(msg.solve_id);
+    if (pending) {
+      const stored = { ...msg };
+      delete stored.case_id;
+      delete stored.solve_id;
+      delete stored.replay;
+      pending.messages.push(stored);
+    }
+    if (!isVisibleSolveMessage(msg)) return;
+  }
+
   switch (msg.type) {
-    case "model_loaded":
+    case "model_loaded": {
+      const nextModelKey = modelKey(msg);
+      if (activeModelKey !== null && activeModelKey !== nextModelKey) {
+        runCases.splice(0, runCases.length);
+        selectedRunCaseIndex = -1;
+        latestExecutedSnapshot = null;
+        renderRunCasesList();
+      }
+      activeModelKey = nextModelKey;
       if (msg.geometry) viewer.loadGeometry(msg.geometry);
       if (msg.meta) {
         updateMeta(msg.meta);
         if (modelLoadIntent === "run") {
-          syncAllConstraints();
-          send({ type: "solve" });
+          requestExecution();
         } else if (modelLoadIntent === "reset") {
           resetConstraintsFromModel(msg.meta);
-          syncAllConstraints();
-          send({ type: "solve" });
+          requestExecution();
         } else if (msg.meta.example) {
           resetConstraintsFromModel(msg.meta);
-          syncAllConstraints();
         } else {
           renderAllConstraints();
         }
@@ -1159,6 +1289,7 @@ function handleMessage(msg) {
         showError(null);
       }
       break;
+    }
 
     case "afil_dependencies":
       renderAfilDependencies(msg.dependencies);
@@ -1267,7 +1398,7 @@ function connect() {
     showError(null);
     if (!hasAutoLoadedExample) {
       hasAutoLoadedExample = true;
-      send({ type: "load_example", name: "supra" });
+      requestExecution({ type: "load_example", name: "supra" }, null);
     }
   });
 
@@ -1337,7 +1468,7 @@ function bindFileLoad(inputId, buttonIds, onLoaded) {
 function bindUI() {
   document.getElementById("btn-load-supra-demo").addEventListener("click", () => {
     if (isSolving) return;
-    send({ type: "load_example", name: "supra" });
+    requestExecution({ type: "load_example", name: "supra" }, null);
   });
 
   bindFileLoad("avl-file-input", ["btn-load-avl-file-aircraft", "btn-load-avl-file"], async ({ text }) => {
@@ -1378,7 +1509,6 @@ function bindUI() {
   document.getElementById("btn-add-constraint").addEventListener("click", () => {
     constraints.push({ variable: "beta", constraint: "beta", value: 0 });
     renderAllConstraints();
-    sendConstraint(constraints.length - 1, null);
     scheduleSolve();
   });
 

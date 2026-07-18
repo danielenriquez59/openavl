@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
@@ -58,17 +59,63 @@ async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
     await websocket.send_text(json.dumps(payload))
 
 
-async def _send_messages(websocket: WebSocket, messages: list[dict[str, Any]]) -> None:
-    """Send a list of protocol messages to the client."""
-    for message in messages:
-        await _send_json(websocket, message)
-
-
 async def _run_in_executor(func, *args, **kwargs) -> Any:
     """Run blocking solver work off the event loop."""
     loop = asyncio.get_running_loop()
     bound = partial(func, *args, **kwargs)
     return await loop.run_in_executor(None, bound)
+
+
+def _solve_identity(data: dict[str, Any]) -> tuple[str | None, str]:
+    """Return the optional case ID and a stable ID for one solve response batch."""
+    case_id = data.get("case_id")
+    return (str(case_id) if case_id is not None else None, str(data.get("solve_id") or uuid.uuid4()))
+
+
+async def _send_solve_result(
+    websocket: WebSocket,
+    result: dict[str, Any],
+    *,
+    case_id: str | None,
+    solve_id: str,
+) -> None:
+    """Send one correlated solve response batch followed by its completion marker."""
+    for message in result["messages"]:
+        correlated = {**message, "case_id": case_id, "solve_id": solve_id}
+        await _send_json(websocket, correlated)
+    await _send_json(
+        websocket,
+        {"type": "solve_complete", "case_id": case_id, "solve_id": solve_id},
+    )
+
+
+def _apply_run_case(session: SessionState, data: dict[str, Any]) -> None:
+    """Apply a complete GUI run case to the active solver without executing it."""
+    if session.solver is None:
+        raise RuntimeError("No model loaded.")
+
+    raw_inputs = data.get("inputs", {})
+    raw_constraints = data.get("constraints", [])
+    if not isinstance(raw_inputs, dict) or not isinstance(raw_constraints, list):
+        raise ValueError("Run case inputs and constraints must be an object and an array.")
+
+    constraints: list[tuple[str, str, float]] = []
+    for row in raw_constraints:
+        if not isinstance(row, dict):
+            raise ValueError("Each run case constraint must be an object.")
+        constraints.append(
+            (
+                str(row.get("variable", "")),
+                str(row.get("constraint", "")),
+                float(row.get("value", 0.0)),
+            )
+        )
+    session.solver.replace_constraints(constraints)
+    for key, raw_value in raw_inputs.items():
+        try:
+            session.solver.set_parameter(str(key), float(raw_value))
+        except KeyError:
+            session.solver.set_variable(str(key), float(raw_value))
 
 
 async def _handle_message(session: SessionState, websocket: WebSocket, data: dict[str, Any]) -> None:
@@ -79,9 +126,18 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
     try:
         if msg_type == "load_example":
             name = str(data.get("name", ""))
-            await _send_json(websocket, {"type": "solve_started"})
+            case_id, solve_id = _solve_identity(data)
+            await _send_json(
+                websocket,
+                {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
+            )
             result = await _run_in_executor(session_mod.load_example, session, name)
-            await _send_messages(websocket, result["messages"])
+            await _send_solve_result(
+                websocket,
+                result,
+                case_id=case_id,
+                solve_id=solve_id,
+            )
             return
 
         if msg_type == "upload_avl":
@@ -94,9 +150,18 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
         if msg_type == "load_avl":
             session.pending_avl_text = str(data.get("text", ""))
             session.airfoil_base_dir = None
-            await _send_json(websocket, {"type": "solve_started"})
+            case_id, solve_id = _solve_identity(data)
+            await _send_json(
+                websocket,
+                {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
+            )
             result = await _run_in_executor(load_uploaded_model, session)
-            await _send_messages(websocket, result["messages"])
+            await _send_solve_result(
+                websocket,
+                result,
+                case_id=case_id,
+                solve_id=solve_id,
+            )
             return
 
         if msg_type == "upload_airfoil":
@@ -136,20 +201,38 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
             session.solver.set_constraint(variable, constraint, value)
             return
 
+        if msg_type == "apply_run_case":
+            _apply_run_case(session, data)
+            return
+
         if msg_type == "solve":
             if session.solver is None:
                 raise RuntimeError("No model loaded.")
-            await _send_json(websocket, {"type": "solve_started"})
+            case_id, solve_id = _solve_identity(data)
+            await _send_json(
+                websocket,
+                {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
+            )
             async with session.lock:
                 result = await _run_in_executor(run_solve, session)
-            await _send_messages(websocket, result["messages"])
+            await _send_solve_result(
+                websocket,
+                result,
+                case_id=case_id,
+                solve_id=solve_id,
+            )
             return
 
         await _send_json(websocket, {"type": "error", "message": f"Unknown message type: {msg_type}"})
 
     except Exception as exc:
         logger.exception("WebSocket handler error")
-        await _send_json(websocket, {"type": "error", "message": str(exc)})
+        error: dict[str, Any] = {"type": "error", "message": str(exc)}
+        if data.get("solve_id") is not None:
+            error["solve_id"] = str(data["solve_id"])
+            case_id = data.get("case_id")
+            error["case_id"] = str(case_id) if case_id is not None else None
+        await _send_json(websocket, error)
 
 
 @app.websocket("/ws")
