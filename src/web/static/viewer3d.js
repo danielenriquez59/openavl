@@ -146,11 +146,15 @@ export class AircraftViewer3D {
     this.meshes = [];
     this.surfaceMeshes = new Map();
     this.showLift = false;
+    this.showWake = false;
+    this.wireframeOnly = false;
     this.showCg = false;
     this.liftData = null;
+    this.wakeData = null;
     this.cgPoint = null;
     this.componentMasses = [];
     this.liftGroup = null;
+    this.wakeGroup = null;
     this.cgGroup = null;
 
     this.scene = new THREE.Scene();
@@ -199,6 +203,18 @@ export class AircraftViewer3D {
     this.btnLift.title = "Toggle spanwise lift distribution";
     this.btnLift.addEventListener("click", () => this.setShowLift(!this.showLift));
 
+    this.btnWake = document.createElement("button");
+    this.btnWake.type = "button";
+    this.btnWake.textContent = "Wake";
+    this.btnWake.title = "Toggle trailing wake filaments";
+    this.btnWake.addEventListener("click", () => this.setShowWake(!this.showWake));
+
+    this.btnMesh = document.createElement("button");
+    this.btnMesh.type = "button";
+    this.btnMesh.textContent = "Mesh";
+    this.btnMesh.title = "Toggle aerodynamic panel mesh";
+    this.btnMesh.addEventListener("click", () => this.setWireframeOnly(!this.wireframeOnly));
+
     this.btnCg = document.createElement("button");
     this.btnCg.type = "button";
     this.btnCg.dataset.overlay = "cg";
@@ -206,7 +222,7 @@ export class AircraftViewer3D {
     this.btnCg.title = "Toggle center-of-gravity marker";
     this.btnCg.addEventListener("click", () => this.setShowCg(!this.showCg));
 
-    this.overlay.append(this.btnLift, this.btnCg);
+    this.overlay.append(this.btnLift, this.btnWake, this.btnMesh, this.btnCg);
     this.container.appendChild(this.overlay);
 
     this.viewOverlay = document.createElement("div");
@@ -232,6 +248,36 @@ export class AircraftViewer3D {
     this.showLift = show;
     this.btnLift?.classList.toggle("active", show);
     this._rebuildLiftOverlay();
+  }
+
+  /**
+   * Show or hide the trailing wake filament overlay.
+   *
+   * @param {boolean} show
+   */
+  setShowWake(show) {
+    this.showWake = show;
+    this.btnWake?.classList.toggle("active", show);
+    this._rebuildWakeOverlay();
+  }
+
+  /**
+   * Toggle between filled geometry and wireframe-only rendering.
+   *
+   * @param {boolean} enabled
+   */
+  setWireframeOnly(enabled) {
+    this.wireframeOnly = enabled;
+    this.btnMesh?.classList.toggle("active", enabled);
+    for (const object of this.meshes) {
+      if (object.isMesh) {
+        object.visible = !enabled;
+      } else if (object.userData.aerodynamicPanelMesh) {
+        object.visible = enabled;
+      } else if (object.isLineSegments) {
+        object.visible = !enabled;
+      }
+    }
   }
 
   /**
@@ -264,6 +310,24 @@ export class AircraftViewer3D {
   updateLiftDistribution(data) {
     this.liftData = data;
     this._rebuildLiftOverlay();
+  }
+
+  /**
+   * Update trailing wake filament data from a solve result.
+   *
+   * @param {{
+   *   surfaces?: Array<{
+   *     name?: string,
+   *     filaments?: Array<{
+   *       x0?: number, y0?: number, z0?: number,
+   *       x1?: number, y1?: number, z1?: number
+   *     }>
+   *   }>
+   * }|null} data
+   */
+  updateWake(data) {
+    this.wakeData = data;
+    this._rebuildWakeOverlay();
   }
 
   /**
@@ -382,6 +446,46 @@ export class AircraftViewer3D {
     }
 
     this.scene.add(this.liftGroup);
+  }
+
+  /** Rebuild the trailing wake filament overlay. */
+  _rebuildWakeOverlay() {
+    this._disposeOverlayGroup(this.wakeGroup);
+    this.wakeGroup = null;
+    if (!this.showWake || !this.wakeData?.surfaces?.length) return;
+
+    const vertices = [];
+    for (const surface of this.wakeData.surfaces) {
+      for (const filament of surface.filaments ?? []) {
+        const coordinates = [
+          Number(filament.x0),
+          Number(filament.y0),
+          Number(filament.z0),
+          Number(filament.x1),
+          Number(filament.y1),
+          Number(filament.z1),
+        ];
+        if (coordinates.every(Number.isFinite)) {
+          vertices.push(...coordinates);
+        }
+      }
+    }
+
+    if (!vertices.length) return;
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    const lines = new THREE.LineSegments(
+      geometry,
+      new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.72 }),
+    );
+    lines.name = "wake-filaments";
+
+    this.wakeGroup = new THREE.Group();
+    this.wakeGroup.name = "trailing-wake";
+    this.wakeGroup.renderOrder = 2;
+    this.wakeGroup.add(lines);
+    this.scene.add(this.wakeGroup);
   }
 
   /** Rebuild the center-of-gravity marker mesh. */
@@ -537,6 +641,7 @@ export class AircraftViewer3D {
    *     color?: number[],
    *     positions: number[],
    *     indices: number[],
+   *     panel_lines?: number[],
    *     dcp?: number[]
    *   }>,
    *   bodies?: Array<{
@@ -560,13 +665,14 @@ export class AircraftViewer3D {
       this._addMesh(body, { isBody: true });
     }
 
+    this.setWireframeOnly(this.wireframeOnly);
     this.fitToModel();
   }
 
   /**
    * Add one surface or body mesh to the scene.
    *
-   * @param {{ name?: string, color?: number[], positions: number[], indices: number[], dcp?: number[] }} meshData
+   * @param {{ name?: string, color?: number[], positions: number[], indices: number[], panel_lines?: number[], dcp?: number[] }} meshData
    * @param {{ isBody?: boolean }} options
    */
   _addMesh(meshData, { isBody = false } = {}) {
@@ -625,6 +731,23 @@ export class AircraftViewer3D {
     );
     this.scene.add(line);
     this.meshes.push(line);
+
+    if (!isBody && meshData.panel_lines?.length >= 6) {
+      const panelGeometry = new THREE.BufferGeometry();
+      panelGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(meshData.panel_lines, 3),
+      );
+      const panelLines = new THREE.LineSegments(
+        panelGeometry,
+        new THREE.LineBasicMaterial({ color: 0xa9bed3, transparent: true, opacity: 0.95 }),
+      );
+      panelLines.name = `${mesh.name}-aerodynamic-panels`;
+      panelLines.userData.aerodynamicPanelMesh = true;
+      panelLines.visible = this.wireframeOnly;
+      this.scene.add(panelLines);
+      this.meshes.push(panelLines);
+    }
   }
 
   /**
@@ -714,8 +837,10 @@ export class AircraftViewer3D {
   dispose() {
     window.removeEventListener("resize", this._boundResize);
     this._disposeOverlayGroup(this.liftGroup);
+    this._disposeOverlayGroup(this.wakeGroup);
     this._disposeOverlayGroup(this.cgGroup);
     this.liftGroup = null;
+    this.wakeGroup = null;
     this.cgGroup = null;
     this._cgSpriteTexture?.dispose?.();
     this._cgSpriteTexture = null;

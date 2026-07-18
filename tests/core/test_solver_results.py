@@ -15,6 +15,15 @@ SUPRA_MASS = GEOMETRIES_DIR.parent / "mass" / "supra.mass"
 pytestmark = pytest.mark.core
 
 
+def test_avl_solver_import_paths_share_one_class():
+    """All documented import paths expose the canonical solver class."""
+    from openavl import AVLSolver as root_solver
+    from openavl.core.solver import AVLSolver as core_solver
+
+    assert AVLSolver is root_solver
+    assert AVLSolver is core_solver
+
+
 @pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
 def test_get_results_control_deflections():
     """Control deflections are exposed by name in get_results."""
@@ -41,6 +50,25 @@ def test_get_results_moment_scalars():
     assert {"CM", "CM_sa", "CF"}.isdisjoint(results)
     for key in ("Cl", "Cm", "Cn", "Cl_sa", "Cm_sa", "Cn_sa", "Cx", "Cy", "Cz"):
         assert key in results
+
+
+@pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
+def test_replace_constraints_clears_previous_trim_assignment():
+    """A complete run case fixes variables omitted from its constraint list."""
+    solver = AVLSolver(SUPRA_AVL, alpha=4.0)
+    solver.set_variable("elevator", -3.0)
+    solver.set_constraint("elevator", "cm", 0.0)
+
+    solver.replace_constraints([("alpha", "cl", 0.8)])
+
+    elevator = solver.model.control_map["elevator"]
+    elevator_variable = C.IVTOT + elevator
+    elevator_constraint = C.ICTOT + elevator
+    assert solver.state.icon[C.IVALFA, 0] == C.ICCL
+    assert solver.state.conval[C.ICCL, 0] == pytest.approx(0.8)
+    assert solver.state.icon[elevator_variable, 0] == elevator_constraint
+    assert solver.state.conval[elevator_constraint, 0] == pytest.approx(0.0)
+    assert solver.state.delcon[elevator] == pytest.approx(0.0)
 
 
 @pytest.mark.skipif(
