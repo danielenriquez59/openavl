@@ -19,6 +19,7 @@ from openavl.web.session import (
     EXAMPLES,
     SessionState,
     add_airfoil_dependency,
+    add_body_dependency,
     create_session,
     load_uploaded_model,
     mark_disconnected,
@@ -26,6 +27,7 @@ from openavl.web.session import (
     run_solve,
     touch_session,
     upload_airfoil,
+    upload_body,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,6 +176,19 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
         if msg_type == "add_airfoil_dependency":
             path = str(data.get("path", ""))
             result = await _run_in_executor(add_airfoil_dependency, session, path)
+            await _send_json(websocket, result)
+            return
+
+        if msg_type == "upload_body":
+            path = str(data.get("path", ""))
+            text = str(data.get("text", ""))
+            result = await _run_in_executor(upload_body, session, path, text)
+            await _send_json(websocket, result)
+            return
+
+        if msg_type == "add_body_dependency":
+            path = str(data.get("path", ""))
+            result = await _run_in_executor(add_body_dependency, session, path)
             await _send_json(websocket, result)
             return
 

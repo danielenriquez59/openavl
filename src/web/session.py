@@ -20,6 +20,7 @@ from openavl.core.solver import AVLSolver
 from openavl.core.solver.initialization import apply_parameter_options
 from openavl.fileio.mass import MassProperties, _apply_mass_properties, masput, parse_mass_text, unitset
 from openavl.fileio.parser import AVLModel, normalize_airfoil_path, parse_avl, parse_xy_coords_text, prepare_model
+from openavl.geom.airfoil import parse_body_coords
 from openavl.geom.geometry import solver_surface_name
 from openavl.core.state import AVLState
 from openavl.web.geometry_export import model_to_geometry
@@ -60,10 +61,14 @@ class SessionState:
     pending_avl_text: str | None = None
     pending_mass_text: str | None = None
     warnings: list[str] = field(default_factory=list)
+    # Shared on-disk root for built-in examples (resolves both AFIL and BFIL paths).
     airfoil_base_dir: Path | None = None
     airfoil_files: dict[str, str] = field(default_factory=dict)
     extra_airfoil_paths: list[str] = field(default_factory=list)
     invalid_airfoil_paths: set[str] = field(default_factory=set)
+    body_files: dict[str, str] = field(default_factory=dict)
+    extra_body_paths: list[str] = field(default_factory=list)
+    invalid_body_paths: set[str] = field(default_factory=set)
     _airfoil_temp: tempfile.TemporaryDirectory[str] | None = field(default=None, repr=False)
 
 
@@ -80,20 +85,23 @@ def _airfoil_text_valid(text: str) -> bool:
     return len(_parse_airfoil_coords_text(text)) > 0
 
 
-def list_airfoil_dependencies(
-    avl_text: str | None,
+def _body_text_valid(text: str) -> bool:
+    """Return ``True`` when body text contains at least one coordinate pair."""
+    return len(parse_body_coords(text)) > 0
+
+
+def _list_normalized_paths(
+    avl_entries: list[str],
     extra_paths: list[str] | None = None,
 ) -> list[str]:
-    """Return unique normalized ``AFIL`` paths referenced by AVL text and manual entries."""
+    """Return unique normalized paths from AVL entries plus optional manual paths."""
     paths: list[str] = []
     seen: set[str] = set()
-    if avl_text:
-        model = parse_avl(avl_text)
-        for entry in model.airfoil_files:
-            norm = normalize_airfoil_path(entry)
-            if norm and norm not in seen:
-                seen.add(norm)
-                paths.append(norm)
+    for entry in avl_entries:
+        norm = normalize_airfoil_path(entry)
+        if norm and norm not in seen:
+            seen.add(norm)
+            paths.append(norm)
     for entry in extra_paths or []:
         norm = normalize_airfoil_path(entry)
         if norm and norm not in seen:
@@ -102,16 +110,52 @@ def list_airfoil_dependencies(
     return paths
 
 
-def _airfoil_source_path(session: SessionState, path: str) -> Path | None:
+def list_airfoil_dependencies(
+    avl_text: str | None,
+    extra_paths: list[str] | None = None,
+) -> list[str]:
+    """Return unique normalized ``AFIL`` paths referenced by AVL text and manual entries."""
+    avl_entries: list[str] = []
+    if avl_text:
+        avl_entries = parse_avl(avl_text).airfoil_files
+    return _list_normalized_paths(avl_entries, extra_paths)
+
+
+def list_body_dependencies(
+    avl_text: str | None,
+    extra_paths: list[str] | None = None,
+) -> list[str]:
+    """Return unique normalized ``BFIL`` paths referenced by AVL text and manual entries."""
+    avl_entries: list[str] = []
+    if avl_text:
+        avl_entries = parse_avl(avl_text).body_files
+    return _list_normalized_paths(avl_entries, extra_paths)
+
+
+def _dep_source_path(
+    session: SessionState,
+    path: str,
+    *,
+    uploaded: dict[str, str],
+) -> Path | None:
     """Return an on-disk path for a dependency when one is available."""
-    rel = Path(path)
-    if path in session.airfoil_files:
+    if path in uploaded:
         return None
     if session.airfoil_base_dir is not None:
-        candidate = session.airfoil_base_dir / rel
+        candidate = session.airfoil_base_dir / Path(path)
         if candidate.is_file():
             return candidate
     return None
+
+
+def _airfoil_source_path(session: SessionState, path: str) -> Path | None:
+    """Return an on-disk path for an airfoil dependency when one is available."""
+    return _dep_source_path(session, path, uploaded=session.airfoil_files)
+
+
+def _body_source_path(session: SessionState, path: str) -> Path | None:
+    """Return an on-disk path for a body dependency when one is available."""
+    return _dep_source_path(session, path, uploaded=session.body_files)
 
 
 def _airfoil_is_ready(session: SessionState, path: str) -> bool:
@@ -121,6 +165,15 @@ def _airfoil_is_ready(session: SessionState, path: str) -> bool:
     if path in session.airfoil_files and _airfoil_text_valid(session.airfoil_files[path]):
         return True
     return _airfoil_source_path(session, path) is not None
+
+
+def _body_is_ready(session: SessionState, path: str) -> bool:
+    """Return ``True`` when a body dependency can be resolved for the solver."""
+    if path in session.invalid_body_paths:
+        return False
+    if path in session.body_files and _body_text_valid(session.body_files[path]):
+        return True
+    return _body_source_path(session, path) is not None
 
 
 def build_afil_dependencies(session: SessionState) -> list[dict[str, Any]]:
@@ -137,6 +190,7 @@ def build_afil_dependencies(session: SessionState) -> list[dict[str, Any]]:
         rows.append(
             {
                 "path": path,
+                "kind": "AFIL",
                 "status": status,
                 "manual": path not in avl_paths,
             }
@@ -144,34 +198,84 @@ def build_afil_dependencies(session: SessionState) -> list[dict[str, Any]]:
     return rows
 
 
+def build_bfil_dependencies(session: SessionState) -> list[dict[str, Any]]:
+    """Build BFIL dependency rows for the frontend panel."""
+    avl_paths = set(list_body_dependencies(session.pending_avl_text))
+    rows: list[dict[str, Any]] = []
+    for path in list_body_dependencies(session.pending_avl_text, session.extra_body_paths):
+        if path in session.invalid_body_paths:
+            status = "invalid"
+        elif _body_is_ready(session, path):
+            status = "ready"
+        else:
+            status = "missing"
+        rows.append(
+            {
+                "path": path,
+                "kind": "BFIL",
+                "status": status,
+                "manual": path not in avl_paths,
+            }
+        )
+    return rows
+
+
+def build_file_dependencies(session: SessionState) -> list[dict[str, Any]]:
+    """Build combined AFIL and BFIL dependency rows for the frontend panel."""
+    return build_afil_dependencies(session) + build_bfil_dependencies(session)
+
+
 def _cleanup_airfoil_temp(session: SessionState) -> None:
-    """Release any temporary directory used to stage uploaded airfoil files."""
+    """Release any temporary directory used to stage uploaded geometry files."""
     if session._airfoil_temp is not None:
         session._airfoil_temp.cleanup()
         session._airfoil_temp = None
 
 
+def _write_dep_to_work_dir(
+    root: Path,
+    dep: str,
+    *,
+    uploaded: dict[str, str],
+    source: Path | None,
+) -> None:
+    """Write one dependency file into the materialization work directory."""
+    dest = root / Path(dep)
+    if dep in uploaded:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(uploaded[dep], encoding="utf-8", errors="replace")
+        return
+    if source is not None:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(source.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+
+
 def _materialize_airfoil_work_dir(session: SessionState, avl_text: str) -> Path | None:
-    """Write resolvable airfoil dependencies to a temp directory for ``prepare_model``."""
-    deps = list_airfoil_dependencies(avl_text, session.extra_airfoil_paths)
-    if not deps:
+    """Write resolvable AFIL/BFIL dependencies to a temp directory for ``prepare_model``."""
+    afil_deps = list_airfoil_dependencies(avl_text, session.extra_airfoil_paths)
+    bfil_deps = list_body_dependencies(avl_text, session.extra_body_paths)
+    if not afil_deps and not bfil_deps:
         _cleanup_airfoil_temp(session)
         return session.airfoil_base_dir
 
     _cleanup_airfoil_temp(session)
-    session._airfoil_temp = tempfile.TemporaryDirectory(prefix="openavl-afil-")
+    session._airfoil_temp = tempfile.TemporaryDirectory(prefix="openavl-deps-")
     root = Path(session._airfoil_temp.name)
 
-    for dep in deps:
-        dest = root / Path(dep)
-        if dep in session.airfoil_files:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(session.airfoil_files[dep], encoding="utf-8", errors="replace")
-            continue
-        source = _airfoil_source_path(session, dep)
-        if source is not None:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(source.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
+    for dep in afil_deps:
+        _write_dep_to_work_dir(
+            root,
+            dep,
+            uploaded=session.airfoil_files,
+            source=_airfoil_source_path(session, dep),
+        )
+    for dep in bfil_deps:
+        _write_dep_to_work_dir(
+            root,
+            dep,
+            uploaded=session.body_files,
+            source=_body_source_path(session, dep),
+        )
 
     return root
 
@@ -183,6 +287,15 @@ def _append_missing_afil_warnings(session: SessionState, warnings: list[str]) ->
         joined = ", ".join(missing[:5])
         suffix = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
         warnings.append(f"Missing AFIL airfoil files: {joined}{suffix}")
+
+
+def _append_missing_bfil_warnings(session: SessionState, warnings: list[str]) -> None:
+    """Add warnings for unresolved ``BFIL`` dependencies."""
+    missing = [row["path"] for row in build_bfil_dependencies(session) if row["status"] == "missing"]
+    if missing:
+        joined = ", ".join(missing[:5])
+        suffix = f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""
+        warnings.append(f"Missing BFIL body files: {joined}{suffix}")
 
 
 def _create_solver(
@@ -228,6 +341,7 @@ def _model_meta(solver: AVLSolver, session: SessionState | None = None) -> dict[
         "warnings": [],
     }
     if session is not None:
+        meta["file_dependencies"] = build_file_dependencies(session)
         meta["afil_dependencies"] = build_afil_dependencies(session)
     return meta
 
@@ -773,6 +887,7 @@ def _solver_from_text(
 
     if warnings is not None:
         _append_missing_afil_warnings(session, warnings)
+        _append_missing_bfil_warnings(session, warnings)
 
     return _create_solver(model, mass_props=mass_props, **_DEFAULT_FLIGHT_PARAMS)
 
@@ -791,6 +906,8 @@ def load_example(session: SessionState, name: str) -> dict[str, Any]:
     session.airfoil_base_dir = avl_path.parent if avl_path else None
     session.extra_airfoil_paths = []
     session.invalid_airfoil_paths.clear()
+    session.extra_body_paths = []
+    session.invalid_body_paths.clear()
     session.solver = _solver_from_example(name)
     _apply_default_trim(session.solver)
     session.solver.execute_run(max_iter=20)
@@ -834,8 +951,8 @@ def upload_airfoil(session: SessionState, path: str, text: str) -> dict[str, Any
     session.airfoil_files[norm] = text
     if not session.pending_avl_text:
         return {
-            "type": "afil_dependencies",
-            "dependencies": build_afil_dependencies(session),
+            "type": "file_dependencies",
+            "dependencies": build_file_dependencies(session),
         }
     return rebuild_solver_from_pending(session)
 
@@ -850,8 +967,43 @@ def add_airfoil_dependency(session: SessionState, path: str) -> dict[str, Any]:
     if session.pending_avl_text:
         return rebuild_solver_from_pending(session)
     return {
-        "type": "afil_dependencies",
-        "dependencies": build_afil_dependencies(session),
+        "type": "file_dependencies",
+        "dependencies": build_file_dependencies(session),
+    }
+
+
+def upload_body(session: SessionState, path: str, text: str) -> dict[str, Any]:
+    """Store uploaded body file text and rebuild the pending model."""
+    norm = normalize_airfoil_path(path)
+    if not norm:
+        raise ValueError("Body path is empty.")
+    if not _body_text_valid(text):
+        session.invalid_body_paths.add(norm)
+        session.body_files.pop(norm, None)
+        raise ValueError(f"Could not parse body coordinates in '{norm}'.")
+
+    session.invalid_body_paths.discard(norm)
+    session.body_files[norm] = text
+    if not session.pending_avl_text:
+        return {
+            "type": "file_dependencies",
+            "dependencies": build_file_dependencies(session),
+        }
+    return rebuild_solver_from_pending(session)
+
+
+def add_body_dependency(session: SessionState, path: str) -> dict[str, Any]:
+    """Register a manually added BFIL dependency path."""
+    norm = normalize_airfoil_path(path)
+    if not norm:
+        raise ValueError("Body path is empty.")
+    if norm not in session.extra_body_paths:
+        session.extra_body_paths.append(norm)
+    if session.pending_avl_text:
+        return rebuild_solver_from_pending(session)
+    return {
+        "type": "file_dependencies",
+        "dependencies": build_file_dependencies(session),
     }
 
 

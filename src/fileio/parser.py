@@ -563,13 +563,29 @@ def prepare_model(model: AVLModel, base_dir: str | Path | None = None) -> AVLMod
 
     for body in model.bodies:
         coords = body.body_coords
-        if not coords and body.body_file and base:
+        if not coords and body.body_file:
             body_path = Path(body.body_file)
             if not body_path.is_absolute():
-                body_path = base / body_path
-            if body_path.is_file():
-                coords = parse_body_coords(body_path.read_text(encoding="utf-8", errors="replace"))
-                body.body_coords = coords
+                if base is None:
+                    warnings.warn(
+                        f"Body file not found: {body.body_file} "
+                        "(relative path with no base_dir); body omitted.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    body_path = None
+                else:
+                    body_path = base / body_path
+            if body_path is not None:
+                if body_path.is_file():
+                    coords = parse_body_coords(body_path.read_text(encoding="utf-8", errors="replace"))
+                    body.body_coords = coords
+                else:
+                    warnings.warn(
+                        f"Body file not found: {body_path}; body omitted.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
         if coords:
             thread = build_body_thread(coords)
             if thread is not None:
