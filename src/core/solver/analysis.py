@@ -30,7 +30,9 @@ def get_stability_derivatives(self) -> StabilityDerivatives:
         with respect to ``alpha``, ``beta``, body rates, and control
         deflections use per-radian units (for example ``CL_a`` is dCL/dα
         and ``Cm_d["elevator"]`` is dCm/dδ_elevator). Rate derivatives
-        ``*_p``, ``*_q``, and ``*_r`` are non-dimensional.
+        ``*_p``, ``*_q``, and ``*_r`` are non-dimensional. Also includes
+        ``xnp`` (neutral point, geometry length units) and ``sm`` (static
+        margin as a fraction of ``cref``).
 
     Notes
     -----

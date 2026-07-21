@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
 from openavl import constants as C
+from openavl.analysis.deriv import compute_neutral_point
 from openavl.solver import AVLSolver
 
 from tests.helpers import FIXTURES_DIR, GEOMETRIES_DIR
@@ -49,6 +51,18 @@ def _configure_derivative_run(solver: AVLSolver) -> None:
         s.conval[ic, ir] = 0.0
 
 
+def test_compute_neutral_point_matches_avl_formula():
+    """Neutral point and static margin follow AVL aoutput.f."""
+    xcg, cref, cl_a, cm_a = 0.25, 1.0, 5.0, -1.0
+    xnp, sm = compute_neutral_point(xcg, cref, cl_a, cm_a)
+    assert sm == pytest.approx(0.2)
+    assert xnp == pytest.approx(0.45)
+
+    xnp_nan, sm_nan = compute_neutral_point(xcg, cref, 0.0, cm_a)
+    assert math.isnan(xnp_nan)
+    assert math.isnan(sm_nan)
+
+
 @pytest.mark.skipif(not PLANE_AVL.is_file(), reason="plane.avl not found")
 @pytest.mark.skipif(not FIXTURE_PATH.is_file(), reason="derivative fixture not found")
 @pytest.mark.reference
@@ -69,6 +83,11 @@ def test_stability_derivatives_match_fixture():
     assert derivs.CL_b == pytest.approx(expected["CLb"], abs=TOL)
     assert derivs.CY_b == pytest.approx(expected["CYb"], abs=TOL)
     assert derivs.Cm_a == pytest.approx(expected["Cma"], abs=TOL)
+
+    expected_sm = -derivs.Cm_a / derivs.CL_a
+    expected_xnp = float(solver.state.xyzref[0]) + expected_sm * float(solver.state.cref)
+    assert derivs.sm == pytest.approx(expected_sm, abs=TOL)
+    assert derivs.xnp == pytest.approx(expected_xnp, abs=TOL)
 
     ctrl_name = solver.state.control_names[0]
     assert derivs.CY_d[ctrl_name] == pytest.approx(expected["CYd1"], abs=TOL)

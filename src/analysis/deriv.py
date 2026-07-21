@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -19,6 +20,10 @@ class StabilityDerivatives:
     Perturbation derivatives with respect to ``alpha``, ``beta``, body rates,
     and control deflections are returned in per-radian units (for example
     ``CL_a`` is dCL/dα and ``Cm_d["elevator"]`` is dCm/dδ_elevator).
+
+    ``xnp`` is the neutral-point x-location in geometry length units (same as
+    ``xcg`` / ``XYZREF``), matching AVL ``aoutput.f``. ``sm`` is the static
+    margin as a fraction of ``cref``: ``sm = (xnp - xcg) / cref = -Cm_a / CL_a``.
     """
 
     CL_a: float = 0.0
@@ -51,12 +56,51 @@ class StabilityDerivatives:
     Cn_p: float = 0.0
     Cn_q: float = 0.0
     Cn_r: float = 0.0
+    xnp: float = math.nan
+    sm: float = math.nan
     CL_d: dict[str, float] = field(default_factory=dict)
     CD_d: dict[str, float] = field(default_factory=dict)
     CY_d: dict[str, float] = field(default_factory=dict)
     Cl_d: dict[str, float] = field(default_factory=dict)
     Cm_d: dict[str, float] = field(default_factory=dict)
     Cn_d: dict[str, float] = field(default_factory=dict)
+
+
+def compute_neutral_point(
+    xcg: float,
+    cref: float,
+    cl_a: float,
+    cm_a: float,
+) -> tuple[float, float]:
+    """Compute neutral point and static margin from longitudinal derivatives.
+
+    Matches AVL ``aoutput.f``::
+
+        Xnp = Xcg - Cref * Cm_a / CL_a
+        SM  = (Xnp - Xcg) / Cref = -Cm_a / CL_a
+
+    Parameters
+    ----------
+    xcg:
+        Moment-reference / CG x-location in geometry length units.
+    cref:
+        Reference chord in geometry length units.
+    cl_a:
+        Lift-curve slope ``dCL/dα`` (per radian).
+    cm_a:
+        Pitch-stiffness derivative ``dCm/dα`` (per radian), taken about ``xcg``.
+
+    Returns
+    -------
+    tuple[float, float]
+        ``(xnp, sm)`` where ``xnp`` is in geometry length units and ``sm`` is
+        a fraction of ``cref``. Both are ``nan`` when ``cl_a`` is zero.
+    """
+    if cl_a == 0.0:
+        return math.nan, math.nan
+    sm = -float(cm_a) / float(cl_a)
+    xnp = float(xcg) + sm * float(cref)
+    return xnp, sm
 
 
 def _chain_alpha(
@@ -192,6 +236,13 @@ def compute_stability_derivatives(state: AVLState) -> StabilityDerivatives:
         derivs.Cl_d[name] = _control_deriv_per_rad(dir_ * crs_d, state)
         derivs.Cm_d[name] = _control_deriv_per_rad(cms_d, state)
         derivs.Cn_d[name] = _control_deriv_per_rad(dir_ * cns_d, state)
+
+    derivs.xnp, derivs.sm = compute_neutral_point(
+        xcg=float(state.xyzref[0]),
+        cref=cref,
+        cl_a=derivs.CL_a,
+        cm_a=derivs.Cm_a,
+    )
 
     return derivs
 

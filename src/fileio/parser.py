@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -525,13 +526,31 @@ def prepare_model(model: AVLModel, base_dir: str | Path | None = None) -> AVLMod
                 ctrl.index = control_map[ctrl.name]
 
             coords = sec.airfoil_coords
-            if not coords and sec.airfoil_file and base:
+            if not coords and sec.airfoil_file:
                 af_path = Path(sec.airfoil_file)
                 if not af_path.is_absolute():
-                    af_path = base / af_path
-                if af_path.is_file():
-                    coords = _parse_airfoil_coords_file(af_path)
-                    sec.airfoil_coords = coords
+                    if base is None:
+                        warnings.warn(
+                            f"Airfoil file not found: {sec.airfoil_file} "
+                            "(relative path with no base_dir); "
+                            f"using {_airfoil_fallback_label(sec)} instead.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        af_path = None
+                    else:
+                        af_path = base / af_path
+                if af_path is not None:
+                    if af_path.is_file():
+                        coords = _parse_airfoil_coords_file(af_path)
+                        sec.airfoil_coords = coords
+                    else:
+                        warnings.warn(
+                            f"Airfoil file not found: {af_path}; "
+                            f"using {_airfoil_fallback_label(sec)} instead.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
 
             if coords:
                 sec.airfoil_camber = build_camber_slope(coords)
@@ -560,6 +579,13 @@ def prepare_model(model: AVLModel, base_dir: str | Path | None = None) -> AVLMod
                 body.body_thread_t = tc.tolist()
 
     return model
+
+
+def _airfoil_fallback_label(sec: SectionDef) -> str:
+    """Return a short label for the camber used when an airfoil file is missing."""
+    if sec.naca:
+        return f"NACA {sec.naca}"
+    return "flat plate (NACA 0000)"
 
 
 def _parse_airfoil_coords_file(path: Path) -> list[list[float]]:
