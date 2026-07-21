@@ -759,11 +759,19 @@
 
     .afil-dep-row {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: auto minmax(0, 1fr) auto auto;
       gap: 0.35rem;
       padding: 0.25rem 0;
       align-items: center;
       font-size: 0.78rem;
+    }
+
+    .afil-dep-kind {
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: var(--ink-muted);
+      white-space: nowrap;
     }
 
     .afil-dep-name {
@@ -845,9 +853,9 @@
         </section>
 
         <section class="panel" id="panel-afil-deps">
-          <div class="panel-header"><span class="panel-header-title">AFIL File Dependencies</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
+          <div class="panel-header"><span class="panel-header-title">File Dependencies</span><span class="panel-toggle" aria-hidden="true">▾</span></div>
           <div class="panel-body">
-            <div id="afil-deps-empty" class="placeholder">No AFIL references in the loaded aircraft.</div>
+            <div id="afil-deps-empty" class="placeholder">No AFIL/BFIL references in the loaded aircraft.</div>
             <div id="afil-deps-list" class="afil-deps-list"></div>
           </div>
         </section>

@@ -39,8 +39,9 @@ class AVLSolver:
        :meth:`get_settings`. Retrieve coefficients (:meth:`get_results`),
        aerodynamic accelerations (:meth:`get_aero_accel`), derivatives
        (:meth:`get_stability_derivatives`), and/or dynamic modes
-       (:meth:`eigenvalues`). Visualize with :meth:`plot_aircraft`,
-       :meth:`plot_lift_distribution`, and :meth:`plot_cp`.
+       (       :meth:`eigenvalues`). Visualize with :meth:`plot_aircraft`,
+       :meth:`plot_lift_distribution`, and :meth:`plot_cp`. Export the aero
+       lattice to STL with :meth:`export_stl`.
 
     Attributes
     ----------
@@ -423,3 +424,4 @@ class AVLSolver:
     plot_lift_distribution = _visualization.plot_lift_distribution
     get_cp_data = _visualization.get_cp_data
     plot_cp = _visualization.plot_cp
+    export_stl = _visualization.export_stl

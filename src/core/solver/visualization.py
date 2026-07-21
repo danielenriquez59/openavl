@@ -2,7 +2,42 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+
+def export_stl(
+    self,
+    path: str | Path,
+    *,
+    include_bodies: bool = True,
+) -> Path:
+    """Export the aero mesh (surfaces + bodies) to an ASCII STL file.
+
+    Writes the vortex-lattice panel mesh and optional body tubes used by the
+    solver. This is the aero lattice for CAD comparison, not a watertight
+    outer-mold-line solid. Does not require a prior solve.
+
+    Parameters
+    ----------
+    path:
+        Destination ``.stl`` file path.
+    include_bodies:
+        When ``True`` (default), include fuselage body tube meshes.
+
+    Returns
+    -------
+    pathlib.Path
+        Path to the written STL file.
+    """
+    from openavl.fileio.cad_export import export_stl as _export_stl
+
+    return _export_stl(
+        self.model,
+        self.state,
+        path,
+        include_bodies=include_bodies,
+    )
 
 
 def plot_aircraft(self, **kwargs: Any) -> Any:

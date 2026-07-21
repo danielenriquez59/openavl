@@ -737,26 +737,26 @@ function updateMassProperties(payload = {}, { syncFlight = true } = {}) {
   }
 }
 
-/** @type {Array<{path: string, status: string, manual?: boolean}>} */
-let afilDependencies = [];
+/** @type {Array<{path: string, kind?: string, status: string, manual?: boolean}>} */
+let fileDependencies = [];
 
 /**
- * Normalize an AFIL dependency path for display and server messages.
+ * Normalize an AFIL/BFIL dependency path for display and server messages.
  *
  * @param {string} path
  * @returns {string}
  */
-function normalizeAfilPath(path) {
+function normalizeDepPath(path) {
   return String(path ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
 }
 
 /**
- * Human-readable status label for an AFIL dependency row.
+ * Human-readable status label for a file dependency row.
  *
  * @param {string} status
  * @returns {string}
  */
-function afilStatusLabel(status) {
+function depStatusLabel(status) {
   switch (status) {
     case "ready":
       return "Ready";
@@ -769,25 +769,30 @@ function afilStatusLabel(status) {
 }
 
 /**
- * Render the AFIL file dependencies panel.
+ * Render the unified AFIL/BFIL file dependencies panel.
  *
- * @param {Array<{path?: string, status?: string, manual?: boolean}>} [deps]
+ * @param {Array<{path?: string, kind?: string, status?: string, manual?: boolean}>} [deps]
  */
-function renderAfilDependencies(deps = afilDependencies) {
-  afilDependencies = Array.isArray(deps) ? deps : [];
+function renderFileDependencies(deps = fileDependencies) {
+  fileDependencies = Array.isArray(deps) ? deps : [];
   if (!els.afilDepsList) return;
 
   els.afilDepsList.innerHTML = "";
   if (els.afilDepsEmpty) {
-    els.afilDepsEmpty.style.display = afilDependencies.length ? "none" : "block";
+    els.afilDepsEmpty.style.display = fileDependencies.length ? "none" : "block";
   }
 
-  afilDependencies.forEach((dep) => {
-    const path = normalizeAfilPath(dep.path);
+  fileDependencies.forEach((dep) => {
+    const path = normalizeDepPath(dep.path);
     if (!path) return;
+    const kind = String(dep.kind ?? "AFIL").toUpperCase() === "BFIL" ? "BFIL" : "AFIL";
 
     const row = document.createElement("div");
     row.className = `afil-dep-row ${dep.status ?? "missing"}`;
+
+    const kindEl = document.createElement("div");
+    kindEl.className = "afil-dep-kind";
+    kindEl.textContent = kind;
 
     const name = document.createElement("div");
     name.className = "afil-dep-name";
@@ -796,7 +801,7 @@ function renderAfilDependencies(deps = afilDependencies) {
 
     const status = document.createElement("div");
     status.className = "afil-dep-status";
-    status.textContent = afilStatusLabel(dep.status);
+    status.textContent = depStatusLabel(dep.status);
 
     const uploadBtn = document.createElement("button");
     uploadBtn.type = "button";
@@ -815,13 +820,15 @@ function renderAfilDependencies(deps = afilDependencies) {
       if (!file) return;
       try {
         const text = await file.text();
-        send({ type: "upload_airfoil", path, text });
+        const msgType = kind === "BFIL" ? "upload_body" : "upload_airfoil";
+        send({ type: msgType, path, text });
         scheduleSolve();
       } catch (err) {
-        showError(err instanceof Error ? err.message : "Failed to read airfoil file");
+        showError(err instanceof Error ? err.message : "Failed to read dependency file");
       }
     });
 
+    row.appendChild(kindEl);
     row.appendChild(name);
     row.appendChild(status);
     row.appendChild(uploadBtn);
@@ -1296,7 +1303,11 @@ function handleMessage(msg) {
             viewer.updateCg({ x: active.xcg, y: active.ycg, z: active.zcg });
           }
         }
-        if (msg.meta.afil_dependencies) renderAfilDependencies(msg.meta.afil_dependencies);
+        if (msg.meta.file_dependencies) {
+          renderFileDependencies(msg.meta.file_dependencies);
+        } else if (msg.meta.afil_dependencies) {
+          renderFileDependencies(msg.meta.afil_dependencies);
+        }
       }
       modelLoadIntent = null;
       if (msg.avl_text) els.avlEditor.value = msg.avl_text;
@@ -1309,8 +1320,12 @@ function handleMessage(msg) {
       break;
     }
 
+    case "file_dependencies":
+      renderFileDependencies(msg.dependencies);
+      break;
+
     case "afil_dependencies":
-      renderAfilDependencies(msg.dependencies);
+      renderFileDependencies(msg.dependencies);
       break;
 
     case "cp_update":
