@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -16,7 +16,23 @@ _EPS = (2.0e-5)
 _DMAX = (1.5708)
 
 
-def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
+class SolveCancelledError(RuntimeError):
+    """Raised when a caller cooperatively cancels an active solve."""
+
+
+def _raise_if_cancelled(cancel_check: Callable[[], bool] | None) -> None:
+    """Abort the solve when the caller's cancellation predicate is true."""
+    if cancel_check is not None and cancel_check():
+        raise SolveCancelledError("Solve stopped by user.")
+
+
+def exec_solve(
+    state: Any,
+    niter: int = 0,
+    info: int = 0,
+    ir: int = 0,
+    cancel_check: Callable[[], bool] | None = None,
+) -> Any:
     """Run the AVL solve loop: setup, unit solutions, forces, optional Newton trim.
 
     On trim non-convergence or abort, leaves ``parval`` / ``lsen`` unchanged
@@ -26,6 +42,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
     """
     _ = info
     dir_ = (-1.0 if state.lnasa_sa else 1.0)
+    _raise_if_cancelled(cancel_check)
 
     state.lsol = False
     state._clmax_clip_warned: set[int] = set()
@@ -45,6 +62,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
         state.lsen = False
 
     setup(state)
+    _raise_if_cancelled(cancel_check)
 
     if niter > 0:
         if int(state.icon[C.IVALFA, ir]) == C.ICALFA:
@@ -59,6 +77,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
             state.wrot[2] = (state.conval[C.ICROTZ, ir] * 2.0 / state.bref)
 
     gucalc(state)
+    _raise_if_cancelled(cancel_check)
     vinfab(state)
     # gamsum rebuilds gam_d/gam_g from gam_u_d/gam_u_g; skip redundant gdcalc.
     gamsum(state)
@@ -77,6 +96,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
         ivsys = np.zeros(ivmax, dtype=np.int32)
 
         for _iter in range(niter):
+            _raise_if_cancelled(cancel_check)
             if state.lsa_rates:
                 ca = (np.cos(state.alfa))
                 sa = (np.sin(state.alfa))
@@ -316,6 +336,7 @@ def exec_solve(state: Any, niter: int = 0, info: int = 0, ir: int = 0) -> Any:
             gamsum(state)
             velsum(state)
             aero(state)
+            _raise_if_cancelled(cancel_check)
 
             delmax = max(
                 (

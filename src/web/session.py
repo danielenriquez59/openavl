@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import math
 import re
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -70,6 +72,7 @@ class SessionState:
     extra_body_paths: list[str] = field(default_factory=list)
     invalid_body_paths: set[str] = field(default_factory=set)
     _airfoil_temp: tempfile.TemporaryDirectory[str] | None = field(default=None, repr=False)
+    cancel_solve: threading.Event = field(default_factory=threading.Event, repr=False)
 
 
 sessions: dict[str, SessionState] = {}
@@ -910,7 +913,7 @@ def load_example(session: SessionState, name: str) -> dict[str, Any]:
     session.invalid_body_paths.clear()
     session.solver = _solver_from_example(name)
     _apply_default_trim(session.solver)
-    session.solver.execute_run(max_iter=20)
+    _execute_cancellable(session)
     return build_solve_responses(session, include_geometry=True, example_name=name)
 
 
@@ -1023,15 +1026,28 @@ def load_uploaded_model(session: SessionState) -> dict[str, Any]:
         session.pending_mass_text,
         warnings=session.warnings,
     )
-    session.solver.execute_run(max_iter=20)
+    _execute_cancellable(session)
     return build_solve_responses(session, include_geometry=True)
+
+
+def _execute_cancellable(session: SessionState) -> None:
+    """Run the active solver and restore its pre-solve state if stopped."""
+    if session.solver is None:
+        raise RuntimeError("No model loaded.")
+    clean_solver = copy.deepcopy(session.solver)
+    try:
+        session.solver.execute_run(
+            max_iter=20,
+            cancel_check=session.cancel_solve.is_set,
+        )
+    except Exception:
+        session.solver = clean_solver
+        raise
 
 
 def run_solve(session: SessionState) -> dict[str, Any]:
     """Execute the solver and return all post-solve payloads."""
-    if session.solver is None:
-        raise RuntimeError("No model loaded.")
-    session.solver.execute_run(max_iter=20)
+    _execute_cancellable(session)
     return build_solve_responses(session, include_geometry=False)
 
 

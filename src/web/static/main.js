@@ -52,6 +52,7 @@ const viewer = new AircraftViewer3D(document.getElementById("viewer3d"));
 
 const els = {
   wsStatus: document.getElementById("ws-status"),
+  stopSolveButton: document.getElementById("btn-stop-solve"),
   errorBanner: document.getElementById("error-banner"),
   avlEditor: document.getElementById("avl-editor"),
   massEditor: document.getElementById("mass-editor"),
@@ -249,6 +250,10 @@ function scheduleSolve() {
 function setSolving(solving) {
   isSolving = solving;
   document.body.classList.toggle("is-solving", solving);
+  if (els.stopSolveButton) {
+    els.stopSolveButton.disabled = false;
+    els.stopSolveButton.textContent = "Stop";
+  }
   const btn = document.getElementById("btn-load-supra-demo");
   if (btn) btn.disabled = solving;
 }
@@ -1251,6 +1256,14 @@ function handleMessage(msg) {
     return;
   }
 
+  if (msg.type === "solve_stopped") {
+    pendingSolves.delete(msg.solve_id);
+    setSolving(false);
+    setStatus("connected", "Connected");
+    showError(null);
+    return;
+  }
+
   if (msg.type === "error" && msg.solve_id) {
     pendingSolves.delete(msg.solve_id);
     if (!isVisibleSolveMessage(msg)) return;
@@ -1500,6 +1513,17 @@ function bindFileLoad(inputId, buttonIds, onLoaded) {
 
 /** Bind UI button and editor handlers. */
 function bindUI() {
+  els.stopSolveButton?.addEventListener("click", () => {
+    if (!isSolving) return;
+    clearTimeout(solveDebounce);
+    solveDebounce = null;
+    pendingSolves.clear();
+    els.stopSolveButton.disabled = true;
+    els.stopSolveButton.textContent = "Stopping…";
+    setStatus("solving", "Stopping…");
+    send({ type: "stop_solve" });
+  });
+
   document.getElementById("btn-load-supra-demo").addEventListener("click", () => {
     if (isSolving) return;
     requestExecution({ type: "load_example", name: "supra" }, null);
