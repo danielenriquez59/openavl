@@ -32,12 +32,8 @@ solver = AVLSolver(
     xcg=3.75,       # CG x-location (geometry length units)
 )
 
-print("Loaded:", supra_avl.name)
-print(f"  surfaces : {solver.state.nsurf}")
-print(f"  vortices : {solver.state.nvor}")
-print(f"  controls : {', '.join(solver.state.control_names)}")
-print(f"  mass     : {solver.model.mass.mass:.3f} kg")
-print()
+solver.print_settings()
+
 
 # --- 2. Set trim constraints ------------------------------------------------
 
@@ -82,7 +78,7 @@ print(f"  Cn_r = {derivs.Cn_r:.4f}   Cl_p = {derivs.Cl_p:.4f}")
 print()
 
 print("Control derivatives (per radian deflection)")
-for name in solver.state.control_names:
+for name in derivs.CL_d:
     print(
         f"  {name:8s}  "
         f"CL_d = {derivs.CL_d[name]:8.4f}  "

@@ -15,13 +15,13 @@ from openavl import AVLSolver
 from supra_geometry import format_vector
 
 
-def surface_labels(solver):
+def surface_labels(settings):
     """Build human-readable labels for each aerodynamic surface index."""
     labels = []
-    for surf in solver.model.surfaces:
-        labels.append(surf.name)
-        if surf.yduplicate is not None:
-            labels.append(f"{surf.name} (mirror)")
+    for surf in settings["surfaces"]:
+        labels.append(surf["name"])
+        if surf["yduplicate"] is not None:
+            labels.append(f"{surf['name']} (mirror)")
     return labels
 
 
@@ -48,21 +48,22 @@ def main():
         xcg=3.75,
     )
 
-    state  = solver.state
-    sref_d = state.sref * state.unitl * state.unitl
-    mass   = state.rmass0
+    settings = solver.get_settings()
+    solver.print_settings()
+
+    mass = settings["mass"]["mass"]
+    unitl = settings["mass"]["units"]["unitl"]
+    sref_d = settings["aircraft"]["sref"] * unitl * unitl
 
     # n = L/W, L = CL * q * S  =>  CL = n * W / (q * S)
-    weight     = mass * gravity
+    weight = mass * gravity
     q_pressure = 0.5 * rho * vinf**2
-    cl_target  = load_factor * weight / (q_pressure * sref_d)
- 
+    cl_target = load_factor * weight / (q_pressure * sref_d)
+
     print("V-n maneuver point")
-    print(f"  aircraft : {supra_avl.name}")
-    print(f"  mass     : {mass:.3f} kg")
-    print(f"  Sref     : {sref_d:.4f} m^2")
     print(f"  n        : {load_factor:.1f} g")
     print(f"  Vinf     : {vinf:.1f} m/s")
+    print(f"  Sref     : {sref_d:.4f} m^2")
     print(f"  CL target: {cl_target:.4f}")
     print()
 
@@ -95,10 +96,12 @@ def main():
 
     # --- Per-surface force coefficients --------------------------------------
     #
-    # clsurf, cdsurf, cysurf, cfsurf, and cmsurf hold stability-axis
-    # coefficients integrated over each lifting surface.
+    # Surface/strip arrays live on solver.state until a higher-level results
+    # helper covers them. clsurf, cdsurf, cysurf, and cmsurf hold
+    # stability-axis coefficients integrated over each lifting surface.
 
-    labels = surface_labels(solver)
+    state = solver.state
+    labels = surface_labels(settings)
     print(f"{'Surface':<22s}  {'CL':>8s}  {'CD':>8s}  {'CY':>8s}  {'Cl':>8s}  {'Cm':>8s}  {'Cn':>8s}")
     print("-" * 78)
 
@@ -122,7 +125,6 @@ def main():
 
     print()
     print("Strip lift distribution")
-    unitl = state.unitl
 
     for isurf in range(state.nsurf):
         if not state.lfload[isurf]:

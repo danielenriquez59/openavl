@@ -115,3 +115,56 @@ def test_parse_all_run_geometries(avl_path: Path):
     model = parse_avl_file(avl_path)
     assert model.header.title
     prepare_model(model, base_dir=GEOMETRIES_DIR)
+
+
+def test_prepare_model_warns_when_airfoil_file_missing(tmp_path: Path):
+    """Missing AFIL paths should warn and fall back to flat-plate camber."""
+    text = "\n".join(
+        [
+            "Missing Airfoil",
+            "0.0",
+            "0 0 0",
+            "1 1 1",
+            "0 0 0",
+            "SURFACE",
+            "Wing",
+            "2 1 1 1",
+            "SECTION",
+            "0 0 0 1 0",
+            "AFIL missing.dat",
+            "SECTION",
+            "1 1 0 1 0",
+        ]
+    )
+    model = parse_avl(text)
+
+    with pytest.warns(UserWarning, match="Airfoil file not found: .*missing\\.dat"):
+        prepare_model(model, base_dir=tmp_path)
+
+    assert model.surfaces[0].sections[0].airfoil_coords is None
+    assert model.surfaces[0].sections[0].airfoil_camber is not None
+
+
+def test_prepare_model_warns_when_airfoil_file_has_no_base_dir():
+    """Relative AFIL paths without base_dir should warn."""
+    text = "\n".join(
+        [
+            "Missing Base Dir",
+            "0.0",
+            "0 0 0",
+            "1 1 1",
+            "0 0 0",
+            "SURFACE",
+            "Wing",
+            "2 1 1 1",
+            "SECTION",
+            "0 0 0 1 0",
+            "AFIL airfoils/wing.dat",
+            "SECTION",
+            "1 1 0 1 0",
+        ]
+    )
+    model = parse_avl(text)
+
+    with pytest.warns(UserWarning, match="relative path with no base_dir"):
+        prepare_model(model)

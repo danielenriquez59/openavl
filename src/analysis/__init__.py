@@ -19,6 +19,7 @@ from openavl.analysis.deriv import (
     StabilityDerivatives,
     compute_body_axis_derivatives,
     compute_control_derivatives,
+    compute_neutral_point,
     compute_stability_derivatives,
 )
 from openavl.analysis.trim import setup_trim
@@ -37,6 +38,7 @@ __all__ = [
     "compute_body_axis_derivatives",
     "compute_control_derivatives",
     "compute_eigenmode_metrics",
+    "compute_neutral_point",
     "compute_stability_derivatives",
     "identify_modes",
     "runchk",

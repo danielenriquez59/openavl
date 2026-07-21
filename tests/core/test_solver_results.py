@@ -53,6 +53,22 @@ def test_get_results_moment_scalars():
 
 
 @pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
+def test_get_results_includes_neutral_point_and_static_margin():
+    """get_results exposes xnp and sm consistent with stability derivatives."""
+    solver = AVLSolver(SUPRA_AVL, alpha=2.0, xcg=3.75)
+    solver.execute_run(max_iter=0)
+
+    results = solver.get_results()
+    derivs = solver.get_stability_derivatives()
+
+    assert "xnp" in results
+    assert "sm" in results
+    assert results["xnp"] == pytest.approx(derivs.xnp)
+    assert results["sm"] == pytest.approx(derivs.sm)
+    assert results["sm"] == pytest.approx(-derivs.Cm_a / derivs.CL_a)
+
+
+@pytest.mark.skipif(not SUPRA_AVL.is_file(), reason="supra.avl not found")
 def test_replace_constraints_clears_previous_trim_assignment():
     """A complete run case fixes variables omitted from its constraint list."""
     solver = AVLSolver(SUPRA_AVL, alpha=4.0)

@@ -86,7 +86,8 @@ def main():
         beta=0.0,
     )
 
-    print("Alpha sweep:", aircraft.name)
+    solver.print_settings()
+    print("Alpha sweep")
     print(f"  aoa range : {AOA_START} to {AOA_STOP} deg, step {AOA_STEP}")
     print(f"  velocity  : {vinf:.1f} m/s")
     print(f"  points    : {len(aoa_array)}")

@@ -14,7 +14,7 @@ Install dependencies from the repository root::
 
 Then run::
 
-    python examples/omdao_hershey_chord_opt.py
+    python examples/rectangular_wing_opt.py
 
 On Windows, if JAX fails to import, try a standard venv or WSL.
 """

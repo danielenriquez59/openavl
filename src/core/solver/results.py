@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 
 from openavl import constants as C
+from openavl.analysis.deriv import compute_stability_derivatives
 from openavl.core.reporting import reported_totals
 
 
@@ -37,6 +38,12 @@ def get_results(self) -> dict[str, Any]:
             ``Cz`` when using NASA-standard axes).
         ``CDV``, ``CLFF``, ``CDFF``, ``CYFF``, ``SPANEF``
             Viscous and Trefftz-plane drag bookkeeping terms.
+        ``xnp``
+            Neutral-point x-location in geometry length units
+            (``xcg - cref * Cm_a / CL_a``), matching AVL ``ST`` output.
+        ``sm``
+            Static margin as a fraction of ``cref``
+            (``(xnp - xcg) / cref = -Cm_a / CL_a``).
         ``alpha_deg``, ``beta_deg``
             Solved angle of attack and sideslip in degrees.
         ``control_deflections``
@@ -54,7 +61,8 @@ def get_results(self) -> dict[str, Any]:
     -----
     Raw integration values remain in ``state.cmtot`` and ``state.cftot``.
     If no solve has been run, values reflect the initialized state and
-    ``converged`` will be ``False``.
+    ``converged`` will be ``False``. ``xnp`` and ``sm`` are ``nan`` when
+    ``CL_a`` is zero.
     """
     s = self.state
     reported = reported_totals(s)
@@ -65,6 +73,7 @@ def get_results(self) -> dict[str, Any]:
         name: float(s.delcon[idx])
         for idx, name in enumerate(s.control_names[: s.ncontrol])
     }
+    derivs = compute_stability_derivatives(s)
     return {
         "CL": s.cltot,
         "CD": s.cdtot,
@@ -83,6 +92,8 @@ def get_results(self) -> dict[str, Any]:
         "CDFF": s.cdff,
         "CYFF": s.cyff,
         "SPANEF": s.spanef,
+        "xnp": derivs.xnp,
+        "sm": derivs.sm,
         "converged": s.lsol,
         "geometry": {
             "NVOR": s.nvor,
