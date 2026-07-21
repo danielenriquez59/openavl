@@ -1,5 +1,6 @@
 """AVL and mass file parsing."""
 
+from openavl.fileio.cad_export import export_stl
 from openavl.fileio.mass import (
     MassProperties,
     load_mass,
@@ -18,6 +19,7 @@ __all__ = [
     "AVLHeader",
     "AVLModel",
     "MassProperties",
+    "export_stl",
     "load_mass",
     "masini",
     "masput",
