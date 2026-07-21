@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from openavl.core.exec import SolveCancelledError
 from openavl.web import session as session_mod
 from openavl.web.session import (
     EXAMPLES,
@@ -129,6 +130,7 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
         if msg_type == "load_example":
             name = str(data.get("name", ""))
             case_id, solve_id = _solve_identity(data)
+            session.cancel_solve.clear()
             await _send_json(
                 websocket,
                 {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
@@ -153,6 +155,7 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
             session.pending_avl_text = str(data.get("text", ""))
             session.airfoil_base_dir = None
             case_id, solve_id = _solve_identity(data)
+            session.cancel_solve.clear()
             await _send_json(
                 websocket,
                 {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
@@ -224,6 +227,7 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
             if session.solver is None:
                 raise RuntimeError("No model loaded.")
             case_id, solve_id = _solve_identity(data)
+            session.cancel_solve.clear()
             await _send_json(
                 websocket,
                 {"type": "solve_started", "case_id": case_id, "solve_id": solve_id},
@@ -240,6 +244,17 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
 
         await _send_json(websocket, {"type": "error", "message": f"Unknown message type: {msg_type}"})
 
+    except SolveCancelledError:
+        case_id, solve_id = _solve_identity(data)
+        await _send_json(
+            websocket,
+            {
+                "type": "solve_stopped",
+                "message": "Solve stopped. The model was restored to its pre-solve state.",
+                "case_id": case_id,
+                "solve_id": solve_id,
+            },
+        )
     except Exception as exc:
         logger.exception("WebSocket handler error")
         error: dict[str, Any] = {"type": "error", "message": str(exc)}
@@ -256,6 +271,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
     session = create_session()
     touch_session(session)
+    message_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def process_messages() -> None:
+        """Process normal messages in order while stop requests bypass the queue."""
+        while True:
+            data = await message_queue.get()
+            try:
+                await _handle_message(session, websocket, data)
+            finally:
+                message_queue.task_done()
+
+    worker = asyncio.create_task(process_messages())
 
     try:
         while True:
@@ -268,12 +295,28 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             if not isinstance(data, dict):
                 await _send_json(websocket, {"type": "error", "message": "Message must be a JSON object."})
                 continue
-            await _handle_message(session, websocket, data)
+            if data.get("type") == "stop_solve":
+                session.cancel_solve.set()
+                while not message_queue.empty():
+                    try:
+                        message_queue.get_nowait()
+                        message_queue.task_done()
+                    except asyncio.QueueEmpty:
+                        break
+                continue
+            await message_queue.put(data)
     except WebSocketDisconnect:
         mark_disconnected(session)
     except Exception:
         mark_disconnected(session)
         raise
+    finally:
+        session.cancel_solve.set()
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
 
 
 _STATIC_DIR.mkdir(parents=True, exist_ok=True)

@@ -91,6 +91,18 @@
     .status-pill.solving .dot { background: var(--warn); animation: pulse 0.8s ease infinite alternate; }
     .status-pill.error .dot { background: var(--bad); }
 
+    #btn-stop-solve {
+      display: none;
+      padding: 0.15rem 0.55rem;
+      border-color: var(--bad);
+      color: #ffb4b4;
+      font-size: 0.75rem;
+    }
+
+    body.is-solving #btn-stop-solve {
+      display: inline-flex;
+    }
+
     @keyframes pulse {
       from { opacity: 0.4; }
       to { opacity: 1; }
@@ -826,6 +838,7 @@
         <span class="dot"></span>
         <span class="label">Connecting…</span>
       </div>
+      <button type="button" id="btn-stop-solve">Stop</button>
       <div id="error-banner" role="alert"></div>
     </header>
 

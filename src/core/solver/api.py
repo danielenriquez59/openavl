@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from openavl import constants as C
 
@@ -380,7 +380,12 @@ class AVLSolver:
         for variable, constraint, value in constraints:
             self.set_constraint(variable, constraint, value)
 
-    def execute_run(self, max_iter: int = 20) -> None:
+    def execute_run(
+        self,
+        max_iter: int = 20,
+        *,
+        cancel_check: Callable[[], bool] | None = None,
+    ) -> None:
         """Run the Newton trim iteration and update solver state.
 
         Builds the vortex lattice, evaluates aerodynamic forces and moments, and
@@ -393,6 +398,10 @@ class AVLSolver:
         max_iter:
             Maximum number of Newton iterations. Pass ``0`` to evaluate forces
             at the current variable values without trimming.
+        cancel_check:
+            Optional predicate checked between major solve stages and Newton
+            iterations. Returning ``True`` raises
+            :class:`openavl.core.exec.SolveCancelledError`.
 
         Notes
         -----
@@ -402,7 +411,7 @@ class AVLSolver:
         """
         from openavl.core.exec import exec_solve
 
-        exec_solve(self.state, niter=max_iter)
+        exec_solve(self.state, niter=max_iter, cancel_check=cancel_check)
 
 
     get_results = _results.get_results
