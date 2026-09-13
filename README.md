@@ -172,6 +172,28 @@ print(derivs.CL_d["elevator"])
 print(derivs.Cm_d["elevator"])
 ```
 
+## JAX Automatic Differentiation
+
+Install the optional `jax` extra to compute derivatives of aerodynamic
+coefficients with respect to flight conditions using automatic differentiation:
+
+```python
+from openavl.jax import JaxAVLSolver
+
+solver = JaxAVLSolver("aircraft.avl")
+flow = solver.run()
+gradient = solver.grad("CL")
+
+print(flow.CL)
+print(gradient.alfa)  # dCL/d(alpha), with alpha in radians
+print(gradient.mach)  # dCL/d(Mach)
+```
+
+Use `solver.jacobian()` to differentiate all force and moment coefficients at
+once. The JAX backend also supports geometry derivatives and OpenMDAO integration
+for gradient-based aircraft optimization. JAX derivatives describe the specified
+flight condition; they do not currently include the response of a trim solve.
+
 ## Eigenvalue / Flight Dynamics Analysis
 
 ```python
@@ -313,6 +335,17 @@ tests/
 OpenAVL aims for numerical fidelity with AVL 3.50, with a few intentional
 corrections where the Fortran source is inconsistent or unsafe:
 
+- **Leishman R⁴ vortex-core regularization**: finite-core vortex velocities
+  use `r/√(r⁴ + rcore⁴)` instead of AVL's Scully/Burnham–Hallock
+  `r/(r² + rcore²)` model. The Trefftz-plane calculation uses the same R⁴
+  model for regularized cross-component interactions. This can produce small
+  differences in induced velocity and induced drag when nonzero core radii are
+  active.
+- **Sectional `CLmax` capping**: the Geometry API can optionally cap local
+  strip lift by scaling that strip's near-field forces, moments, and their
+  sensitivities. This is an OpenAVL post-processing extension, disabled by
+  default and unavailable in legacy `.avl` input. It does not modify the
+  circulation solution or Trefftz-plane far-field loads.
 - **Trefftz yz-image sensitivities** (`IYSYM·IZSYM`, ground effect on
   half-models): AVL adds the yz-image contribution to the far-field velocity
   but subtracts the matching `_u/_d/_g` sensitivity terms. OpenAVL uses the
@@ -323,6 +356,12 @@ corrections where the Fortran source is inconsistent or unsafe:
   entries.
 - **Control/design derivatives** from `get_stability_derivatives()` are per
   **radian**; AVL's `ST` output is per degree (multiply by 57.296 to compare).
+- **Degenerate and inactive influence handling**: zero-width vortices produce
+  zero influence, inactive Trefftz sources are excluded before singular
+  arithmetic, and cross-component core selection follows component IDs for
+  rectangular as well as square influence evaluations. These guards primarily
+  affect invalid or auxiliary field-point cases and prevent batch shape from
+  changing the selected core radius.
 
 ## Support the Project
 
