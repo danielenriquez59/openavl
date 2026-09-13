@@ -11,6 +11,28 @@ from tests.helpers import load_json_fixture
 pytestmark = pytest.mark.core
 
 
+@pytest.mark.parametrize("component", [1, 2])
+def test_vvor_core_independent_of_field_batch_size(component):
+    """A physical point has the same influence alone or in a larger batch."""
+    rv1 = np.array([[0.0], [0.0], [0.0]])
+    rv2 = np.array([[0.0], [1.0], [0.0]])
+    point = np.array([[1.0], [0.01], [0.02]])
+    expected = vorvelc(
+        *point[:, 0], True, *rv1[:, 0], *rv2[:, 0],
+        1.0, 0.1 if component == 2 else 0.0001,
+    )
+    for count in (1, 2, 3):
+        actual = vvor(
+            1.0, 0, 0.0, 0, 0.0, 0.1, 0.1, 1,
+            rv1, rv2, np.array([1]), np.array([1.0]), count,
+            np.repeat(point, count, axis=1), np.full(count, component), False,
+        )
+        np.testing.assert_allclose(
+            actual[:, :, 0], np.repeat(np.asarray(expected)[:, None], count, axis=1),
+            rtol=1e-13, atol=1e-13,
+        )
+
+
 def _build_aic_inputs():
     betm = 0.9
     iysym = 0

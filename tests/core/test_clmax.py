@@ -90,41 +90,79 @@ def test_clmax_symmetric_mirror_uses_same_limit():
         assert np.all(_wing_strip_cl(state, isurf) <= 1.0 + 1e-10)
 
 
-def test_clmax_scales_strip_sensitivities():
-    """Clipped strips scale c*st_u / cnc_u with the same factor as forces."""
-    clmax = 1.0
-    alpha_deg = 20.0
-    # max_iter=0: fixed-alpha force eval only (no Newton), so gamma matches.
-    uncapped = AVLSolver(_build_rect_wing(clmax=0.0), alpha=alpha_deg, beta=0.0, mach=0.0)
-    uncapped.execute_run(max_iter=0)
-    capped = AVLSolver(_build_rect_wing(clmax=clmax), alpha=alpha_deg, beta=0.0, mach=0.0)
-    capped.execute_run(max_iter=0)
-    uncapped_state = uncapped.state
-    capped_state = capped.state
-
-    j0 = int(uncapped_state.jfrst[0])
-    nj = int(uncapped_state.nj[0])
-    js = np.arange(j0, j0 + nj)
-    exceeded = uncapped_state.cl_lstrp[js] > clmax + 1e-6
-    assert np.any(exceeded), f"max strip CL={uncapped_state.cl_lstrp[js].max()}"
-    scale = np.where(
-        uncapped_state.cl_lstrp[js] > clmax,
-        clmax / uncapped_state.cl_lstrp[js],
-        1.0,
-    )
-    for j_local, j in enumerate(js):
-        if not exceeded[j_local]:
-            continue
-        s = scale[j_local]
-        np.testing.assert_allclose(
-            capped_state.clst_u[j, :6],
-            uncapped_state.clst_u[j, :6] * s,
-            rtol=1e-4,
-            atol=1e-6,
+@pytest.mark.parametrize("clmax", [0.0, 1.0])
+def test_clmax_alpha_derivatives_match_finite_difference(clmax):
+    """Differentiate actual capped loads, including the local lift direction."""
+    alpha = 20.0
+    step = 1.0e-5  # radians; derivative arrays use radians
+    state, _ = _run_at_alpha(_build_rect_wing(clmax=clmax), alpha)
+    plus, _ = _run_at_alpha(_build_rect_wing(clmax=clmax), alpha + np.rad2deg(step))
+    minus, _ = _run_at_alpha(_build_rect_wing(clmax=clmax), alpha - np.rad2deg(step))
+    nstrip = state.nstrip
+    if clmax:
+        # Keep finite differences on one smooth branch of the clipping law.
+        assert np.any(state.cl_lstrp[:nstrip] == clmax)
+        np.testing.assert_array_equal(
+            plus.cl_lstrp[:nstrip] == clmax,
+            minus.cl_lstrp[:nstrip] == clmax,
         )
+    for load, deriv in (("clstrp", "clst"), ("cdstrp", "cdst"), ("cystrp", "cyst")):
+        analytic = (
+            getattr(state, deriv + "_u")[:nstrip, :3] @ state.vinf_a
+            + getattr(state, deriv + "_a")[:nstrip]
+        )
+        finite_difference = (
+            getattr(plus, load)[:nstrip] - getattr(minus, load)[:nstrip]
+        ) / (2.0 * step)
+        np.testing.assert_allclose(analytic, finite_difference, rtol=2e-6, atol=2e-8)
+    for load, deriv in (("cfstrp", "cfst"), ("cmstrp", "cmst")):
+        analytic = getattr(state, deriv + "_u")[:, :nstrip, :3] @ state.vinf_a
+        finite_difference = (
+            getattr(plus, load)[:, :nstrip] - getattr(minus, load)[:, :nstrip]
+        ) / (2.0 * step)
+        np.testing.assert_allclose(analytic, finite_difference, rtol=2e-6, atol=2e-8)
+    for load in ("cltot", "cdtot"):
+        analytic = getattr(state, load + "_u")[:3] @ state.vinf_a + getattr(state, load + "_a")
+        finite_difference = (getattr(plus, load) - getattr(minus, load)) / (2.0 * step)
+        assert analytic == pytest.approx(finite_difference, rel=2e-6, abs=2e-8)
+
+
+@pytest.mark.parametrize("clmax", [0.0, 1.0])
+def test_clmax_control_derivatives_match_finite_difference(clmax):
+    """Capped control force and moment derivatives follow the load response."""
+    def run(deflection):
+        aircraft = _build_rect_wing(clmax=clmax)
+        for section in aircraft.wings[0].sections:
+            section.add_control("flap", gain=1.0, xhinge=0.75)
+        solver = AVLSolver(aircraft, alpha=20.0)
+        solver.set_variable("flap", deflection)
+        solver.execute_run(max_iter=0)
+        return solver.state
+
+    step = 1e-3  # control derivatives use degrees
+    state = run(0.0)
+    plus = run(step)
+    minus = run(-step)
+    nstrip = state.nstrip
+    if clmax:
+        assert np.any(state.cl_lstrp[:nstrip] == clmax)
+        np.testing.assert_array_equal(
+            plus.cl_lstrp[:nstrip] == clmax,
+            minus.cl_lstrp[:nstrip] == clmax,
+        )
+    for load, deriv in (("clstrp", "clst"), ("cdstrp", "cdst"), ("cnc", "cnc")):
+        finite_difference = (
+            getattr(plus, load)[:nstrip] - getattr(minus, load)[:nstrip]
+        ) / (2.0 * step)
         np.testing.assert_allclose(
-            capped_state.cnc_u[j, :6],
-            uncapped_state.cnc_u[j, :6] * s,
-            rtol=1e-4,
-            atol=1e-6,
+            getattr(state, deriv + "_d")[:nstrip, 0], finite_difference,
+            rtol=2e-6, atol=2e-8,
+        )
+    for load, deriv in (("cfstrp", "cfst"), ("cmstrp", "cmst")):
+        finite_difference = (
+            getattr(plus, load)[:, :nstrip] - getattr(minus, load)[:, :nstrip]
+        ) / (2.0 * step)
+        np.testing.assert_allclose(
+            getattr(state, deriv + "_d")[:, :nstrip, 0], finite_difference,
+            rtol=2e-6, atol=2e-8,
         )

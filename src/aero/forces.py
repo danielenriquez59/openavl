@@ -639,9 +639,9 @@ def sfforc(state: Any) -> Any:
 
     When ``state.clmax_surf[isurf] > 0``, strip forces on that surface are
     scaled so local ``cl_lstrp`` does not exceed the limit (OpenAVL extension).
-    The same scale is applied to strip sensitivity arrays (``c*st_u/_d/_g``,
-    ``cnc_*``, ``cdv_lstrp``) so Newton trim Jacobians and stability
-    derivatives stay consistent with the clipped residuals. The clip is
+    Strip sensitivities include the derivative of the clipping scale so
+    Newton trim Jacobians and stability derivatives stay consistent with
+    the clipped residuals. The clip is
     non-smooth at the boundary (kink in the derivative).
     """
     numax    = state.numax
@@ -1049,6 +1049,37 @@ def sfforc(state: Any) -> Any:
                 + delz / dmag * (cmz + ((cfy * rle[0]) - (cfx * rle[1])) / cr)
             )
 
+        clmax = state.clmax_surf[state.lssurf[j]]
+        local_cl = state.cl_lstrp[j]
+        if clmax > 0.0 and local_cl > clmax:
+            # For s = Clmax / Cl, d(s F) = s (dF - F dCl / Cl).
+            # Form the expression in parentheses here, while the local lift
+            # direction and all uncapped strip loads are still available.
+            # The surface loop below applies s to both loads and derivatives.
+            force = state.cfstrp[:, j]
+            for suffix, count, lift_deriv in (
+                ("u", numax, ulift_u),
+                ("d", ncontrol, ulift_d[:, :ncontrol]),
+                ("g", ndesign, ulift_g[:, :ndesign]),
+            ):
+                if not count:
+                    continue
+                force_deriv = getattr(state, f"cfst_{suffix}")[:, j, :count]
+                relative_cl_deriv = (
+                    ulift @ force_deriv + force @ lift_deriv
+                ) / local_cl
+                for deriv_name, load_name in (
+                    ("cnc", "cnc"), ("cdst", "cdstrp"),
+                    ("cyst", "cystrp"), ("clst", "clstrp"),
+                ):
+                    getattr(state, f"{deriv_name}_{suffix}")[j, :count] -= (
+                        getattr(state, load_name)[j] * relative_cl_deriv
+                    )
+                force_deriv -= force[:, None] * relative_cl_deriv
+                getattr(state, f"cmst_{suffix}")[:, j, :count] -= (
+                    state.cmstrp[:, j, None] * relative_cl_deriv
+                )
+
     # --- Apply per-surface CLmax capping (OpenAVL extension) ---
     for isurf in range(state.nsurf):
         clmax = state.clmax_surf[isurf]
@@ -1080,7 +1111,8 @@ def sfforc(state: Any) -> Any:
             )
             if warned is not None:
                 warned.add(warn_key)
-        scale = np.where(exceeded, clmax / state.cl_lstrp[js], 1.0)
+        scale = np.ones(js.size, dtype=np.float64)
+        scale[exceeded] = clmax / state.cl_lstrp[js[exceeded]]
         state.cfstrp[:, js] *= scale[np.newaxis, :]
         state.clstrp[js] *= scale
         state.cdstrp[js] *= scale
@@ -1092,7 +1124,9 @@ def sfforc(state: Any) -> Any:
         state.ca_lstrp[js] *= scale
         state.clt_lstrp[js] *= scale
         state.cla_lstrp[js] *= scale
-        # Scale sensitivities with the same factor so totals/Jacobians match.
+        # Complete the product rule prepared in the strip loop above.
+        # Explicit alpha derivatives only rotate the output axes; the local
+        # lift direction depends on vinf, whose derivatives are in *_u.
         state.cnc[js] *= scale
         state.cdv_lstrp[js] *= scale
         state.cdst_a[js] *= scale

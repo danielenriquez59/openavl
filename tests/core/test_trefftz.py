@@ -9,6 +9,7 @@ import pytest
 
 from openavl import constants as C
 from openavl.trefftz import tpforc
+from openavl.aero.trefftz import _accumulate_trefftz_induced
 from tests.helpers import REF_DIR
 
 
@@ -58,6 +59,37 @@ class _TpforcState:
 
 
 pytestmark = pytest.mark.core
+
+
+@pytest.mark.parametrize("image_y,image_z", [(1, 1), (-1, 1), (1, -1), (-1, -1)])
+@pytest.mark.parametrize("inactive_gamma", [0.0, 7.0])
+def test_inactive_trefftz_source_matches_removed_source(image_y, image_z, inactive_gamma):
+    """Inactive real/image filaments may coincide with a field point safely."""
+    y1 = np.array([1.0, image_y * 0.25])
+    z1 = np.array([0.8, image_z * 0.4])
+    y2 = np.array([2.0, 3.0])
+    z2 = np.array([1.2, 3.0])
+    gamma = np.array([0.6, inactive_gamma])
+    # Inactive sensitivities need not be zero either.
+    gamma_u = np.array([[0.2, -0.3], [4.0, 5.0]])
+    gamma_d = np.array([[0.4], [6.0]])
+    gamma_g = np.array([[-0.5], [7.0]])
+
+    def evaluate(count):
+        return _accumulate_trefftz_induced(
+            np.array([0.25]), np.array([0.4]),
+            y1[:count], z1[:count], y2[:count], z2[:count],
+            gamma[:count], gamma_u[:count], gamma_d[:count], gamma_g[:count],
+            np.zeros((1, count)), np.array([True, False])[:count],
+            1.0 / (2.0 * np.pi), 1, 1, 0.0, 0.0, 2, 1, 1,
+        )
+
+    # Raise on invalid arithmetic, rather than merely accepting masked output.
+    with np.errstate(divide="raise", invalid="raise"):
+        expected = evaluate(1)
+        actual = evaluate(2)
+    for result, reference in zip(actual, expected):
+        np.testing.assert_allclose(result, reference, rtol=1e-14, atol=1e-14)
 
 
 @pytest.mark.reference

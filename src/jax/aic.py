@@ -135,7 +135,7 @@ def _vvor_pair(
     rc1 = vrcorec * chordv[j]
     rc2 = vrcorew * dsyz
     rcore_comp = jnp.maximum(rc1, rc2)
-    use_comp_core = jnp.logical_and(nc == nv, ncompc[i] != ncompv[j])
+    use_comp_core = ncompc[i] != ncompv[j]
     rcore = jnp.where(use_comp_core, rcore_comp, rcore_default)
 
     yoff = 2.0 * ysym
@@ -250,10 +250,8 @@ def vvor_jax(
     rc2 = vrcorew * dsyz
     rcore_comp = jnp.maximum(rc1, rc2)
 
-    # Component-matching pairs use the larger core radius
-    use_comp_core = jnp.logical_and(
-        nc == nv, ncompc[:, None] != ncompv[None, :]
-    )  # [nc, nv]
+    # Different-component pairs use the larger core, independent of batch size.
+    use_comp_core = ncompc[:, None] != ncompv[None, :]  # [nc, nv]
     rcore = jnp.where(use_comp_core, rcore_comp[None, :], rcore_default[None, :])  # [nc, nv]
 
     # --- Control-point coordinates broadcast to [nc, nv] ---

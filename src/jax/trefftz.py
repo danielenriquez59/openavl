@@ -29,6 +29,7 @@ def _filament_velocity(
     rcore: jnp.ndarray,
     hpi: jnp.ndarray,
     sign: jnp.ndarray,
+    active: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Biot-Savart velocity from semi-infinite filaments (vectorized over sources).
 
@@ -43,6 +44,15 @@ def _filament_velocity(
     dy2 = ycntr[..., None] - y2
     dz1 = zcntr[..., None] - z1
     dz2 = zcntr[..., None] - z2
+    # Mask before hypot as well as division: hypot(0, 0) has undefined
+    # geometry gradients even if its result is subsequently masked out.
+    enabled = (sign != 0) if active is None else (active != 0) & (sign != 0)
+    dy1 = jnp.where(enabled, dy1, 1.0)
+    dy2 = jnp.where(enabled, dy2, 1.0)
+    dz1 = jnp.where(enabled, dz1, 0.0)
+    dz2 = jnp.where(enabled, dz2, 0.0)
+    rcore = jnp.where(enabled, rcore, 0.0)
+    gams = jnp.where(enabled, gams, 0.0)
     rsq1 = jnp.hypot(dy1 * dy1 + dz1 * dz1, rcore * rcore)
     rsq2 = jnp.hypot(dy2 * dy2 + dz2 * dz2, rcore * rcore)
     vy = sign * hpi * gams * ((dz1 / rsq1) - (dz2 / rsq2))
@@ -108,6 +118,7 @@ def tpforc_jax(
         rcore,
         hpi,
         jnp.array(1.0),
+        active[None, :],
     )
     vy = jnp.sum(vy, axis=1)
     vz = jnp.sum(vz, axis=1)
@@ -124,6 +135,7 @@ def tpforc_jax(
             jnp.zeros_like(rcore),
             hpi,
             jnp.array(-float(tgeom.izsym)),
+            active[None, :],
         )
         vy = vy + jnp.sum(vy_z, axis=1)
         vz = vz + jnp.sum(vz_z, axis=1)
@@ -140,6 +152,7 @@ def tpforc_jax(
             jnp.zeros_like(rcore),
             hpi,
             jnp.array(-float(tgeom.iysym)),
+            active[None, :],
         )
         vy = vy + jnp.sum(vy_y, axis=1)
         vz = vz + jnp.sum(vz_y, axis=1)
@@ -156,6 +169,7 @@ def tpforc_jax(
                 jnp.zeros_like(rcore),
                 hpi,
                 jnp.array(float(tgeom.iysym * tgeom.izsym)),
+                active[None, :],
             )
             vy = vy + jnp.sum(vy_yz, axis=1)
             vz = vz + jnp.sum(vz_yz, axis=1)
@@ -235,6 +249,7 @@ def tpforc_jax_jit(
         rcore,
         hpi,
         jnp.array(1.0),
+        active[None, :],
     )
     vy = jnp.sum(vy, axis=1)
     vz = jnp.sum(vz, axis=1)
@@ -250,6 +265,7 @@ def tpforc_jax_jit(
         jnp.zeros_like(rcore),
         hpi,
         -tgeom.izsym,
+        active[None, :],
     )
     vy = vy + jnp.where(tgeom.izsym != 0, jnp.sum(vy_z, axis=1), 0.0)
     vz = vz + jnp.where(tgeom.izsym != 0, jnp.sum(vz_z, axis=1), 0.0)
@@ -265,6 +281,7 @@ def tpforc_jax_jit(
         jnp.zeros_like(rcore),
         hpi,
         -tgeom.iysym,
+        active[None, :],
     )
     vy = vy + jnp.where(tgeom.iysym != 0, jnp.sum(vy_y, axis=1), 0.0)
     vz = vz + jnp.where(tgeom.iysym != 0, jnp.sum(vz_y, axis=1), 0.0)
@@ -280,6 +297,7 @@ def tpforc_jax_jit(
         jnp.zeros_like(rcore),
         hpi,
         tgeom.iysym * tgeom.izsym,
+        active[None, :],
     )
     both_sym = (tgeom.iysym != 0) & (tgeom.izsym != 0)
     vy = vy + jnp.where(both_sym, jnp.sum(vy_yz, axis=1), 0.0)

@@ -21,7 +21,6 @@ class _VvorVortexPre:
     """Cached vortex-side geometry shared between repeated VVOR builds."""
 
     nv: int
-    nc_eq_nv: bool
     valid_v: np.ndarray
     rcore_ij: np.ndarray
     x1_r: np.ndarray
@@ -77,13 +76,10 @@ def _vvor_vortex_pre(
 
     # default (non-zero) core size based on spanwise lattice spacing
     rcore_default = 0.0001 * dsyz
-    if nc == nv:
-        # if field point is not on same component use larger core size
-        rcore_cross = np.maximum(vrcorec * chordv, vrcorew * dsyz)
-        cross_comp = ncompc[:, np.newaxis] != ncompv[np.newaxis, :]
-        rcore_ij = np.where(cross_comp, rcore_cross[np.newaxis, :], rcore_default[np.newaxis, :])
-    else:
-        rcore_ij = np.broadcast_to(rcore_default[np.newaxis, :], (nc, nv))
+    # Component membership, not the evaluation batch size, selects the core.
+    rcore_cross = np.maximum(vrcorec * chordv, vrcorew * dsyz)
+    cross_comp = ncompc[:, np.newaxis] != ncompv[np.newaxis, :]
+    rcore_ij = np.where(cross_comp, rcore_cross[np.newaxis, :], rcore_default[np.newaxis, :])
 
     x1_r = rv1[0, np.newaxis, :]
     y1_r = rv1[1, np.newaxis, :]
@@ -130,7 +126,6 @@ def _vvor_vortex_pre(
 
     return _VvorVortexPre(
         nv=nv,
-        nc_eq_nv=(nc == nv),
         valid_v=valid_v,
         rcore_ij=rcore_ij,
         x1_r=x1_r, y1_r=y1_r, z1_r=z1_r, x2_r=x2_r, y2_r=y2_r, z2_r=z2_r,
