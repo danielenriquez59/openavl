@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from openavl.fileio.cad_export import build_body_mesh, build_surface_mesh
 from openavl.geom.geometry import solver_surface_name
-from openavl.geom.display import BODY_COLOR, surface_color
+from openavl.geom.display import BODY_COLOR, control_hinge_polylines, surface_color
 
 if TYPE_CHECKING:
     from openavl.core.state import AVLState
@@ -109,8 +109,8 @@ def model_to_geometry(
     Returns
     -------
     dict
-        ``{"surfaces": [...], "bodies": [...]}`` where each entry has ``name``,
-        ``color`` (RGBA floats), ``positions``, ``indices``, and optional ``dcp``.
+        ``{"surfaces": [...], "bodies": [...], "hinges": [...]}`` with mesh
+        geometry and exact control-hinge polylines.
     """
     from openavl.core.state import AVLState
     from openavl.geom.geometry import build_geometry
@@ -160,4 +160,13 @@ def model_to_geometry(
                 }
             )
 
-    return {"surfaces": surfaces, "bodies": bodies}
+    hinges = [
+        {
+            "surface": surface_name,
+            "name": control_name,
+            "positions": [coordinate for point in points for coordinate in point],
+        }
+        for surface_name, control_name, points in control_hinge_polylines(model)
+    ]
+
+    return {"surfaces": surfaces, "bodies": bodies, "hinges": hinges}

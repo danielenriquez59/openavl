@@ -163,6 +163,7 @@ export class AircraftViewer3D {
     this.liftGroup = null;
     this.wakeGroup = null;
     this.cgGroup = null;
+    this.hingeGroup = null;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0d12);
@@ -696,6 +697,11 @@ export class AircraftViewer3D {
    *     color?: number[],
    *     positions: number[],
    *     indices: number[]
+   *   }>,
+   *   hinges?: Array<{
+   *     surface?: string,
+   *     name?: string,
+   *     positions: number[]
    *   }>
    * }} geometry
    */
@@ -712,8 +718,50 @@ export class AircraftViewer3D {
       this._addMesh(body, { isBody: true });
     }
 
+    this._addHingeLines(geometry?.hinges ?? []);
     this.setWireframeOnly(this.wireframeOnly);
     this.fitToModel();
+  }
+
+  /**
+   * Add exact control-hinge polylines to the scene.
+   *
+   * @param {Array<{ surface?: string, name?: string, positions: number[] }>} hinges
+   */
+  _addHingeLines(hinges) {
+    this._disposeOverlayGroup(this.hingeGroup);
+    this.hingeGroup = null;
+
+    const group = new THREE.Group();
+    group.name = "control-hinges";
+    group.renderOrder = 2;
+
+    for (const hinge of hinges) {
+      if (!Array.isArray(hinge.positions) || hinge.positions.length < 6) continue;
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(hinge.positions, 3),
+      );
+      const line = new THREE.Line(
+        geometry,
+        new THREE.LineBasicMaterial({
+          color: 0xe63946,
+          transparent: true,
+          opacity: 0.95,
+          depthTest: false,
+        }),
+      );
+      line.name = `${hinge.surface ?? "surface"}-${hinge.name ?? "control"}-hinge`;
+      line.renderOrder = 2;
+      line.userData.controlHinge = true;
+      group.add(line);
+    }
+
+    if (!group.children.length) return;
+    this.hingeGroup = group;
+    this.scene.add(group);
   }
 
   /**
@@ -860,6 +908,8 @@ export class AircraftViewer3D {
 
   /** Remove all surface meshes from the scene. */
   _clearMeshes() {
+    this._disposeOverlayGroup(this.hingeGroup);
+    this.hingeGroup = null;
     for (const obj of this.meshes) {
       this.scene.remove(obj);
       obj.geometry?.dispose?.();

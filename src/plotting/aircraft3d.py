@@ -17,7 +17,13 @@ if TYPE_CHECKING:
     from openavl.fileio.parser import AVLModel, BodyDef, SectionDef, SurfaceDef
     from openavl.geometry.aircraft import Aircraft
 
-from openavl.geom.display import BODY_COLOR, CONTROL_COLOR, REF_POINT_COLOR, surface_color
+from openavl.geom.display import (
+    BODY_COLOR,
+    CONTROL_COLOR,
+    REF_POINT_COLOR,
+    control_hinge_polylines,
+    surface_color,
+)
 
 _CONTROL_COLOR = CONTROL_COLOR
 _BODY_COLOR = BODY_COLOR
@@ -115,29 +121,6 @@ def _mirror_point(point: np.ndarray, yduplicate: float) -> np.ndarray:
     mirrored = point.copy()
     mirrored[1] = -mirrored[1] + yduplicate
     return mirrored
-
-
-def _collect_control_polylines(model: AVLModel) -> list[tuple[str, str, np.ndarray]]:
-    """Collect hinge-line polylines for each control on each surface."""
-    polylines: list[tuple[str, str, np.ndarray]] = []
-    for surf in model.surfaces:
-        controls: dict[str, list[np.ndarray]] = {}
-        for section in surf.sections:
-            for ctrl in section.controls:
-                hinge = _transform_section_point(section, surf, x_fraction=ctrl.xhinge)
-                controls.setdefault(ctrl.name, []).append(hinge)
-                if surf.yduplicate is not None:
-                    controls.setdefault(ctrl.name, []).append(
-                        _mirror_point(hinge, surf.yduplicate)
-                    )
-        for name, points in controls.items():
-            if len(points) >= 2:
-                order = np.argsort([pt[1] for pt in points])
-                ordered = np.asarray([points[i] for i in order], dtype=np.float64)
-            else:
-                ordered = np.asarray(points, dtype=np.float64)
-            polylines.append((surf.name, name, ordered))
-    return polylines
 
 
 def _plot_lattice_surface(
@@ -268,9 +251,8 @@ def _plot_body_fallback(ax: Axes, body: BodyDef, label: str | None) -> None:
 def _plot_control_surfaces(ax: Axes, model: AVLModel) -> None:
     """Highlight control-surface hinge lines and annotate control names."""
     labeled_controls: set[str] = set()
-    for surf_name, ctrl_name, points in _collect_control_polylines(model):
-        if points.ndim == 1:
-            points = points.reshape(1, 3)
+    for _surface_name, ctrl_name, run in control_hinge_polylines(model):
+        points = np.asarray(run, dtype=np.float64)
         ax.plot(
             points[:, 0],
             points[:, 1],
