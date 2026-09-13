@@ -219,6 +219,7 @@ def snapshot_circulation_geometry(state: Any) -> CirculationGeometry:
         kutta_j2=jnp.asarray(kutta_j2, dtype=jnp.int32),
         stripoff_iv=jnp.asarray(stripoff_iv, dtype=jnp.int32),
         snapshot_mach=jnp.asarray(state.mach, dtype=jnp.float64),
+        srcore=float(state.srcore),
     )
 
 

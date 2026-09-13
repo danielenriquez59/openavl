@@ -45,7 +45,7 @@ def _build_solver(avl_path: Path, alpha: float, beta: float) -> AVLSolver:
     solver = AVLSolver(avl_path)
     solver.set_variable("alpha", alpha)
     solver.set_variable("beta", beta)
-    solver.execute_run(max_iter=1)
+    solver.execute_run(max_iter=0)
     return solver
 
 
@@ -153,38 +153,14 @@ def _compare_derivative_set(solver: AVLSolver, *, label: str) -> None:
     _full_fd = (label == "plane")
     _spot_wrot_pr = {("CL", "wrot", 0), ("CL", "wrot", 2)}
 
-    dir_ = -1.0 if state.lnasa_sa else 1.0
-    ca = float(np.cos(state.alfa))
-    sa = float(np.sin(state.alfa))
+    # Differentiate the full output transformation, including its alpha term.
+    moment_jac = jax.jacrev(lambda f: _stability_moments(
+        f, run_analysis(f, geom, refs).CM, state.lnasa_sa
+    ))(flow)
 
-    def stability_jac_wrt(field: str, index: int | None = None) -> tuple[float, float, float]:
-        cm_jac = jac.CM
-        if field == "alfa":
-            body = np.array([float(cm_jac.alfa[0]), float(cm_jac.alfa[1]), float(cm_jac.alfa[2])])
-        elif field == "beta":
-            body = np.array([float(cm_jac.beta[0]), float(cm_jac.beta[1]), float(cm_jac.beta[2])])
-        elif field == "wrot":
-            body = np.array(
-                [
-                    float(cm_jac.wrot[0][index]),
-                    float(cm_jac.wrot[1][index]),
-                    float(cm_jac.wrot[2][index]),
-                ]
-            )
-        elif field == "delcon":
-            body = np.array(
-                [
-                    float(cm_jac.delcon[index][0]),
-                    float(cm_jac.delcon[index][1]),
-                    float(cm_jac.delcon[index][2]),
-                ]
-            )
-        else:
-            raise KeyError(field)
-        cl = dir_ * (body[0] * ca + body[2] * sa)
-        cm = body[1]
-        cn = dir_ * (body[2] * ca - body[0] * sa)
-        return cl, cm, cn
+    def stability_jac_wrt(field: str, index: int | None = None):
+        values = np.asarray(getattr(moment_jac, field))
+        return values if index is None else values[:, index]
 
     scalar_cases = [
         ("CL", "CL_a", "alfa", None),
@@ -288,13 +264,12 @@ def _compare_derivative_set(solver: AVLSolver, *, label: str) -> None:
 
     rtd = 180.0 / np.pi
     for n, name in enumerate(state.control_names[: state.ncontrol]):
-        for out, deriv_dict in [
-            ("CL", derivs.CL_d),
-            ("CD", derivs.CD_d),
-            ("CY", derivs.CY_d),
-        ]:
-            hand = float(deriv_dict[name])
-            jax_val = _jax_partial(jac, out, "delcon", n) * rtd
+        for out in ("CL", "CD", "CY", "Cl", "Cm", "Cn"):
+            hand = float(getattr(derivs, out + "_d")[name])
+            if out in moment_map:
+                jax_val = float(moment_jac.delcon[moment_map[out], n]) * rtd
+            else:
+                jax_val = _jax_partial(jac, out, "delcon", n) * rtd
             assert jax_val == pytest.approx(hand, abs=JAX_TOL, rel=JAX_TOL)
             if _full_fd or n == 0:
                 fd_val = _central_difference(geom, refs, flow, state.lnasa_sa, out, "delcon", n) * rtd
@@ -324,7 +299,7 @@ def test_mach_derivative_matches_finite_difference() -> None:
     solver.set_variable("alpha", 5.0)
     solver.set_variable("beta", 2.0)
     solver.set_parameter("mach", 0.3)
-    solver.execute_run(max_iter=1)
+    solver.execute_run(max_iter=0)
     state = solver.state
 
     geom = snapshot_analysis_geometry(state)

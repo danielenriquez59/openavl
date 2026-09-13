@@ -62,6 +62,22 @@ jax.config.update("jax_enable_x64", True)
 
 Run JAX tests with `pytest tests/jax_backend`.
 
+The core `FlowCondition` uses radians for `alfa`/`beta`, degrees for
+`delcon`, and body-axis angular velocity divided by freestream speed for
+`wrot` (inverse geometry-length units). `JaxAVLComp` exposes angles and
+controls in radians; `OpenAVLGroup` exposes them in degrees. Both OpenMDAO
+wrappers accept normalized **stability-axis** rates `pb2v`, `qc2v`, and
+`rb2v`, including the angle-dependent conversion to body axes.
+
+`JaxAVLSolver.run()`, `grad()`, and `jacobian()` use the same live-Mach
+analysis, including when JIT is enabled. This requires rebuilding and
+factoring the influence matrix as Mach changes. Geometry analysis rebuilds
+control-normal sensitivities and body influences at the moving lattice
+points. Reference area/lengths and the body centerlines remain fixed.
+Geometry derivatives assume fixed panel topology and interpolation data;
+changes that move a hinge across a panel edge or change panel allocation
+are piecewise smooth and should be checked away from those transitions.
+
 ## Running the Web GUI Locally
 
 OpenAVL ships a browser-based GUI for loading `.avl` models, editing flight conditions, running the solver, and viewing 3D geometry and results. It wraps the core NumPy solver with a FastAPI backend and is optional — not installed with the base package.

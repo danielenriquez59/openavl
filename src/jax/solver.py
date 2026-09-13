@@ -39,7 +39,7 @@ class JaxAVLSolver:
         self._numpy_solver = AVLSolver(geo_file, mass_file, **state_options)
         # Match OpenMDAO components: run setup once so the snapshotted lattice
         # arrays (aicn, wc_gam, influence matrices) reflect a solved state.
-        self._numpy_solver.execute_run(max_iter=1)
+        self._numpy_solver.execute_run(max_iter=0)
         state = self._numpy_solver.state
         self._geom = snapshot_analysis_geometry(state)
         self._refs = snapshot_refs(state)
@@ -78,4 +78,4 @@ class JaxAVLSolver:
         """Jacobian of :func:`run_analysis` outputs w.r.t. ``flow``."""
         if flow is None:
             flow = snapshot_flow(self._numpy_solver.state)
-        return jax.jacrev(run_analysis)(flow, self._geom, self._refs)
+        return jax.jacrev(self.run)(flow)

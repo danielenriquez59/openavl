@@ -10,6 +10,7 @@ from tests.jax_backend.require_jax import require_jax
 jax = require_jax()
 
 from openavl.aero.trefftz import tpforc
+from openavl.constants import NUMAX
 from openavl.jax.backend import jnp
 from openavl.jax.forces import (
     compute_forces,
