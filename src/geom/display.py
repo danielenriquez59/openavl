@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ COMPONENT_COLORS = [
     "#17becf",
 ]
 
-CONTROL_COLOR = "#e63946"
+CONTROL_COLOR = "#3f3f46"
 BODY_COLOR = "#6c757d"
 REF_POINT_COLOR = "#212529"
 
@@ -39,6 +40,17 @@ REF_POINT_COLOR = "#212529"
 def _control_at_section(section: SectionDef, name: str) -> ControlDef | None:
     """Return the named control declaration on one section."""
     return next((control for control in section.controls if control.name == name), None)
+
+
+def _section_le_point(section: SectionDef, surface: SurfaceDef) -> tuple[float, float, float]:
+    """Transform a section leading-edge point into solver coordinates."""
+    scale = surface.scale or [1.0, 1.0, 1.0]
+    translate = surface.translate or [0.0, 0.0, 0.0]
+    return (
+        scale[0] * section.xle + translate[0],
+        scale[1] * section.yle + translate[1],
+        scale[2] * section.zle + translate[2],
+    )
 
 
 def _hinge_point(section: SectionDef, surface: SurfaceDef, xhinge: float) -> tuple[float, float, float]:
@@ -50,6 +62,26 @@ def _hinge_point(section: SectionDef, surface: SurfaceDef, xhinge: float) -> tup
         scale[1] * section.yle + translate[1],
         scale[2] * section.zle + translate[2],
     )
+
+
+def section_airfoil_labels(
+    model: AVLModel,
+) -> list[tuple[str, tuple[float, float, float]]]:
+    """Return AFIL basenames at each section leading-edge location.
+
+    Only sections with an ``AFIL`` path are included. Positions use the same
+    surface scale/translate as control hinges.
+    """
+    labels: list[tuple[str, tuple[float, float, float]]] = []
+    for surface in model.surfaces:
+        for section in surface.sections:
+            if not section.airfoil_file:
+                continue
+            name = Path(section.airfoil_file).name
+            if not name:
+                continue
+            labels.append((name, _section_le_point(section, surface)))
+    return labels
 
 
 def control_hinge_polylines(

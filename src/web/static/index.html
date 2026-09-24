@@ -387,6 +387,12 @@
       color: #fde68a;
     }
 
+    .viewer-overlay button[data-overlay="labels"].active {
+      background: rgba(148, 163, 184, 0.22);
+      border-color: #94a3b8;
+      color: #e2e8f0;
+    }
+
     .viewer-overlay-views {
       top: auto;
       right: auto;
@@ -879,6 +885,10 @@
             <div class="form-row">
               <label for="fp-velocity">Velocity</label>
               <input type="number" id="fp-velocity" data-key="velocity" step="any" value="25" />
+            </div>
+            <div class="form-row">
+              <label for="fp-mach">Mach</label>
+              <input type="number" id="fp-mach" data-key="mach" step="any" value="0" />
             </div>
             <div class="form-row">
               <label for="fp-rho">Density ρ</label>
