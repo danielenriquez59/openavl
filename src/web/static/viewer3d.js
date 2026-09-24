@@ -574,6 +574,11 @@ export class AircraftViewer3D {
 
   /** Rebuild the CG, NP, and component-mass marker meshes. */
   _rebuildCgOverlay() {
+    if (this.cgGroup) {
+      this.cgGroup.traverse((obj) => {
+        if (obj.userData?.disposeMap) obj.material?.map?.dispose?.();
+      });
+    }
     this._disposeOverlayGroup(this.cgGroup);
     this.cgGroup = null;
     const hasCg = Boolean(this.cgPoint);
@@ -591,6 +596,36 @@ export class AircraftViewer3D {
     const maxDim = Math.max(size.x, size.y, size.z, 0.1);
     const markerSize = maxDim * 0.045;
     const massMarkerSize = markerSize * 0.55;
+    const labelHeight = maxDim * 0.035;
+    const labelLift = markerSize * 0.9;
+
+    /**
+     * Add a disposable text sprite near a marker.
+     *
+     * @param {string} text
+     * @param {number} x
+     * @param {number} yPos
+     * @param {number} zPos
+     */
+    const addMarkerLabel = (text, x, yPos, zPos) => {
+      const built = createTextLabelTexture(text);
+      if (!built) return;
+      const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: built.texture,
+          transparent: true,
+          opacity: 0.98,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      label.position.set(x, yPos, zPos + labelLift);
+      label.scale.set(labelHeight * built.aspect, labelHeight, 1);
+      label.renderOrder = 4;
+      label.name = `${text.toLowerCase()}-label`;
+      label.userData.disposeMap = true;
+      this.cgGroup.add(label);
+    };
 
     if (hasCg) {
       if (!this._cgSpriteTexture) {
@@ -612,6 +647,7 @@ export class AircraftViewer3D {
       sprite.renderOrder = 3;
       sprite.name = "cg-marker";
       this.cgGroup.add(sprite);
+      addMarkerLabel("CG", this.cgPoint.x, this.cgPoint.y, this.cgPoint.z);
     }
 
     if (hasNp) {
@@ -635,6 +671,7 @@ export class AircraftViewer3D {
       npSprite.name = "np-marker";
       npSprite.userData.xnp = this.npX;
       this.cgGroup.add(npSprite);
+      addMarkerLabel("NP", this.npX, y, z);
     }
 
     if (!this._massSpriteTexture) {
@@ -1074,6 +1111,11 @@ export class AircraftViewer3D {
     window.removeEventListener("resize", this._boundResize);
     this._disposeOverlayGroup(this.liftGroup);
     this._disposeOverlayGroup(this.wakeGroup);
+    if (this.cgGroup) {
+      this.cgGroup.traverse((obj) => {
+        if (obj.userData?.disposeMap) obj.material?.map?.dispose?.();
+      });
+    }
     this._disposeOverlayGroup(this.cgGroup);
     if (this.labelsGroup) {
       this.labelsGroup.traverse((obj) => {
@@ -1087,6 +1129,8 @@ export class AircraftViewer3D {
     this.labelsGroup = null;
     this._cgSpriteTexture?.dispose?.();
     this._cgSpriteTexture = null;
+    this._npSpriteTexture?.dispose?.();
+    this._npSpriteTexture = null;
     this._massSpriteTexture?.dispose?.();
     this._massSpriteTexture = null;
     this.overlay?.remove();

@@ -12,7 +12,7 @@ def main() -> None:
     import uvicorn
 
     host = "127.0.0.1"
-    port = 8000
+    port = 8080
     url = f"http://{host}:{port}"
 
     def _open_browser() -> None:
