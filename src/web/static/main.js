@@ -27,7 +27,6 @@ let ws = null;
 let reconnectTimer = null;
 let solveDebounce = null;
 let isSolving = false;
-let hasAutoLoadedExample = false;
 /** @type {"per_rad"|"per_deg"} */
 let derivDisplayUnit = "per_rad";
 /** @type {"body"|"stability"} */
@@ -1443,10 +1442,6 @@ function connect() {
   ws.addEventListener("open", () => {
     setStatus("connected", "Connected");
     showError(null);
-    if (!hasAutoLoadedExample) {
-      hasAutoLoadedExample = true;
-      requestExecution({ type: "load_example", name: "supra" }, null);
-    }
   });
 
   ws.addEventListener("message", (ev) => {
