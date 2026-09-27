@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.railpack.com",
+  "provider": "python",
+  "packages": {
+    "python": "3.11"
+  },
+  "deploy": {
+    "startCommand": "uvicorn openavl.web.app:app --host 0.0.0.0 --port $PORT"
+  }
+}
