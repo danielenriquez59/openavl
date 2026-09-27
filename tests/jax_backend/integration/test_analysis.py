@@ -173,3 +173,24 @@ def test_run_analysis_body_source_updates_with_flow() -> None:
 
     assert float(result.CL) == pytest.approx(eval_solver.state.cltot, abs=1e-6, rel=1e-6)
     assert float(result.CD) == pytest.approx(eval_solver.state.cdtot, abs=1e-6, rel=1e-6)
+
+
+def test_solver_jit_mach_and_derivative_api_consistency():
+    """Both public derivative APIs track Mach changes away from the snapshot."""
+    from openavl.jax.solver import JaxAVLSolver
+
+    solver = JaxAVLSolver(PLANE_AVL)
+    flow = snapshot_flow(solver.state)._replace(alfa=np.deg2rad(5.0), beta=np.deg2rad(3.0), mach=0.3)
+    actual = solver.run(flow)
+    expected = run_analysis(flow, solver._geom, solver._refs)
+    for a, b in zip(actual, expected):
+        np.testing.assert_allclose(a, b, atol=1e-9, rtol=1e-9)
+    grad = solver.grad("CL", flow)
+    jac = solver.jacobian(flow).CL
+    for a, b in zip(grad, jac):
+        np.testing.assert_allclose(a, b, atol=1e-10, rtol=1e-10)
+    for step in (1e-4, 1e-5, 1e-6):
+        fd = (solver.run(flow._replace(mach=flow.mach + step)).CL
+              - solver.run(flow._replace(mach=flow.mach - step)).CL) / (2 * step)
+        assert abs(float(fd)) > 1e-6
+        np.testing.assert_allclose(grad.mach, fd, atol=1e-7, rtol=1e-6)

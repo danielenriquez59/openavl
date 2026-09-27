@@ -6,6 +6,7 @@ from functools import partial
 from typing import Callable
 
 from openavl.jax.backend import jax
+from openavl.jax.body import rebuild_body
 from openavl.jax.forces import (
     _compute_forces_eager,
     _compute_forces_impl,
@@ -14,11 +15,9 @@ from openavl.jax.forces import (
 )
 from openavl.jax.setup import (
     compute_circulation,
-    compute_circulation_from_lu,
     compute_velocities,
     rebuild_circulation_geometry,
 )
-from openavl.jax.solve import lu_factor_aicn
 from openavl.jax.types import (
     AnalysisGeometry,
     AnalysisResult,
@@ -108,7 +107,6 @@ def _run_analysis_impl(
     flow: FlowCondition,
     geom: AnalysisGeometry,
     refs: ReferenceQuantities,
-    lu_piv: tuple | None,
     *,
     lvisc: bool,
     lnfld_wv: bool,
@@ -116,19 +114,9 @@ def _run_analysis_impl(
     forces_checkpoint: Callable[..., ForceResult] | None = None,
 ) -> AnalysisResult:
     """Shared analysis path for eager AD and fixed-geometry JIT runners."""
-    if lu_piv is None:
-        # A2: rebuild the lattice AIC/influence matrices from live flow.mach
-        # (no-op unless the geometry snapshot captured the raw lattice fields;
-        # see rebuild_circulation_geometry).
-        circ = rebuild_circulation_geometry(geom.circulation, flow)
-        gamma = compute_circulation(circ, flow, refs)
-    else:
-        # lu_piv is a pre-factored LU of geom.circulation.aicn at whatever
-        # Mach the geometry snapshot was built at; rebuilding the AIC here
-        # would make it inconsistent with that factorization, so this fast
-        # path intentionally keeps Mach fixed (see make_run_analysis_jit).
-        circ = geom.circulation
-        gamma = compute_circulation_from_lu(lu_piv, circ, flow, refs)
+    geom = rebuild_body(geom, flow, refs)
+    circ = rebuild_circulation_geometry(geom.circulation, flow)
+    gamma = compute_circulation(circ, flow, refs)
     _vc, vv, wv = compute_velocities(circ, gamma, flow)
     velocities = Velocities(vv=vv, wv=wv)
     forces = _integrate_forces(
@@ -170,7 +158,7 @@ def run_analysis(
         Total lift, drag, sideforce, and moment coefficients.
     """
     return _run_analysis_impl(
-        flow, geom, refs, None,
+        flow, geom, refs,
         lvisc=lvisc, lnfld_wv=lnfld_wv, use_checkpoint=use_checkpoint,
         forces_checkpoint=forces_checkpoint,
     )
@@ -183,23 +171,12 @@ def make_run_analysis_jit(
     lvisc: bool = False,
     lnfld_wv: bool = False,
 ):
-    """Return a JIT-compiled runner with fixed geometry/reference PyTrees.
-
-    A2 note: this precomputes and reuses one LU factorization of
-    ``geom.circulation.aicn`` (captured at the geometry snapshot's Mach)
-    across every call to the returned runner. Derivatives w.r.t.
-    ``flow.mach`` through this path are therefore computed at a fixed
-    AIC/geometry and will not reflect the AIC's true Mach dependence; use
-    ``run_analysis`` (which takes the ``lu_piv=None`` path in
-    ``_run_analysis_impl``) for an accurate Mach derivative.
-    """
-    lu_piv = lu_factor_aicn(geom.circulation.aicn)
+    """JIT runner with fixed lattice coordinates and live Mach dependence."""
     return jax.jit(
         lambda flow: _run_analysis_impl(
             flow,
             geom,
             refs,
-            lu_piv,
             lvisc=lvisc,
             lnfld_wv=lnfld_wv,
             use_checkpoint=False,

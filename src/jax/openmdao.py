@@ -8,6 +8,7 @@ import numpy as np
 
 from openavl.jax.analysis import run_analysis
 from openavl.jax.backend import jax
+from openavl.jax.freestream import stability_rates_to_body
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_refs
 from openavl.jax.types import FlowCondition
 
@@ -20,7 +21,12 @@ except ImportError:  # pragma: no cover - optional dependency
 if om is not None:
 
     class JaxAVLComp(om.ExplicitComponent):
-        """OpenMDAO component exposing JAX AVL force coefficients and exact partials."""
+        """Force coefficients and partials for radian angles/controls.
+
+        pb2v/qc2v/rb2v are normalized stability-axis rates; CMx/CMy/CMz
+        are the core body-axis moments. Control inputs are converted to
+        degrees internally to match the snapshotted normal sensitivities.
+        """
 
         def initialize(self) -> None:
             self.options.declare("geo_file", types=str)
@@ -30,20 +36,21 @@ if om is not None:
             from openavl.core.solver import AVLSolver
 
             solver = AVLSolver(self.options["geo_file"], self.options["mass_file"])
-            solver.execute_run(max_iter=1)
+            solver.execute_run(max_iter=0)
             state = solver.state
             self._geom = snapshot_analysis_geometry(state)
             self._refs = snapshot_refs(state)
+            self._lnasa_sa = bool(state.lnasa_sa)
             self._ncontrol = int(state.ncontrol)
 
-            self.add_input("alpha", val=0.0)
-            self.add_input("beta", val=0.0)
+            self.add_input("alpha", val=0.0, units="rad")
+            self.add_input("beta", val=0.0, units="rad")
             self.add_input("pb2v", val=0.0)
             self.add_input("qc2v", val=0.0)
             self.add_input("rb2v", val=0.0)
             self.add_input("mach", val=0.0)
             for n in range(self._ncontrol):
-                self.add_input(f"delcon_{n}", val=0.0)
+                self.add_input(f"delcon_{n}", val=0.0, units="rad")
 
             self.add_output("CL", val=0.0)
             self.add_output("CD", val=0.0)
@@ -80,9 +87,19 @@ if om is not None:
                 delcon=delcon,
             )
 
+        def _analysis(self, flow: FlowCondition):
+            """Differentiate the adapter's radian and normalized-rate inputs."""
+            flow = flow._replace(
+                delcon=flow.delcon * (180.0 / np.pi),
+                wrot=stability_rates_to_body(
+                    flow.alfa, flow.wrot, self._refs, self._lnasa_sa
+                ),
+            )
+            return run_analysis(flow, self._geom, self._refs)
+
         def compute(self, inputs: Any, outputs: Any) -> None:
             flow = self._flow_from_inputs(inputs)
-            result = run_analysis(flow, self._geom, self._refs)
+            result = self._analysis(flow)
             outputs["CL"] = float(result.CL)
             outputs["CD"] = float(result.CD)
             outputs["CY"] = float(result.CY)
@@ -92,7 +109,7 @@ if om is not None:
 
         def compute_partials(self, inputs: Any, partials: Any) -> None:
             flow = self._flow_from_inputs(inputs)
-            jac = jax.jacrev(run_analysis)(flow, self._geom, self._refs)
+            jac = jax.jacrev(self._analysis)(flow)
 
             def _set(out: str, wrt: str, value: float) -> None:
                 partials[out, wrt] = value

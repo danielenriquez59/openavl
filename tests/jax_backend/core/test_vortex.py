@@ -17,6 +17,31 @@ from openavl.jax.vortex import vorvelc_jax
 pytestmark = pytest.mark.core
 
 
+@pytest.mark.parametrize("component", [1, 2])
+def test_vvor_jax_core_independent_of_field_batch_size(component):
+    """Rectangular and square batches obey the same component-core policy."""
+    from openavl.aero.vortex import vorvelc
+
+    rv1 = jnp.array([[0.0], [0.0], [0.0]])
+    rv2 = jnp.array([[0.0], [1.0], [0.0]])
+    point = jnp.array([[1.0], [0.01], [0.02]])
+    expected = vorvelc(
+        1.0, 0.01, 0.02, True, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+        1.0, 0.1 if component == 2 else 0.0001,
+    )
+    for count in (1, 2, 3):
+        actual = vvor_jax(
+            1.0, 0, 0.0, 0, 0.0, 0.1, 0.1,
+            rv1, rv2, jnp.array([1]), jnp.array([1.0]),
+            jnp.repeat(point, count, axis=1), jnp.full(count, component), False,
+        )
+        np.testing.assert_allclose(
+            np.asarray(actual[:, :, 0]),
+            np.repeat(np.asarray(expected)[:, None], count, axis=1),
+            rtol=1e-13, atol=1e-13,
+        )
+
+
 @pytest.mark.reference
 def test_vvor_jax_matches_numpy_plane(plane_state):
     """JAX vvor_jax matches NumPy vvor on plane.avl geometry."""

@@ -135,7 +135,7 @@ def _vvor_pair(
     rc1 = vrcorec * chordv[j]
     rc2 = vrcorew * dsyz
     rcore_comp = jnp.maximum(rc1, rc2)
-    use_comp_core = jnp.logical_and(nc == nv, ncompc[i] != ncompv[j])
+    use_comp_core = ncompc[i] != ncompv[j]
     rcore = jnp.where(use_comp_core, rcore_comp, rcore_default)
 
     yoff = 2.0 * ysym
@@ -250,10 +250,8 @@ def vvor_jax(
     rc2 = vrcorew * dsyz
     rcore_comp = jnp.maximum(rc1, rc2)
 
-    # Component-matching pairs use the larger core radius
-    use_comp_core = jnp.logical_and(
-        nc == nv, ncompc[:, None] != ncompv[None, :]
-    )  # [nc, nv]
+    # Different-component pairs use the larger core, independent of batch size.
+    use_comp_core = ncompc[:, None] != ncompv[None, :]  # [nc, nv]
     rcore = jnp.where(use_comp_core, rcore_comp[None, :], rcore_default[None, :])  # [nc, nv]
 
     # --- Control-point coordinates broadcast to [nc, nv] ---
@@ -507,9 +505,9 @@ def vsrd_jax(
                 for iu in range(nu):
                     contrib = (
                         uvws * src_u[l, iu]
-                        + uvwd[0, :] * dbl_u[0, l, iu]
-                        + uvwd[1, :] * dbl_u[1, l, iu]
-                        + uvwd[2, :] * dbl_u[2, l, iu]
+                        + uvwd[:, 0] * dbl_u[0, l, iu]
+                        + uvwd[:, 1] * dbl_u[1, l, iu]
+                        + uvwd[:, 2] * dbl_u[2, l, iu]
                     )
                     wc_u = wc_u.at[:, i, iu].add(contrib)
 
@@ -523,9 +521,9 @@ def vsrd_jax(
                     for iu in range(nu):
                         contrib = (
                             vsrc_y * src_u[l, iu]
-                            + vdbl_y[0, :] * dbl_u[0, l, iu]
-                            - vdbl_y[1, :] * dbl_u[1, l, iu]
-                            + vdbl_y[2, :] * dbl_u[2, l, iu]
+                            + vdbl_y[:, 0] * dbl_u[0, l, iu]
+                            - vdbl_y[:, 1] * dbl_u[1, l, iu]
+                            + vdbl_y[:, 2] * dbl_u[2, l, iu]
                         )
                         wc_u = wc_u.at[:, i, iu].add(contrib * fysym)
 
@@ -539,9 +537,9 @@ def vsrd_jax(
                     for iu in range(nu):
                         contrib = (
                             vsrc_z * src_u[l, iu]
-                            + vdbl_z[0, :] * dbl_u[0, l, iu]
-                            + vdbl_z[1, :] * dbl_u[1, l, iu]
-                            - vdbl_z[2, :] * dbl_u[2, l, iu]
+                            + vdbl_z[:, 0] * dbl_u[0, l, iu]
+                            + vdbl_z[:, 1] * dbl_u[1, l, iu]
+                            - vdbl_z[:, 2] * dbl_u[2, l, iu]
                         )
                         wc_u = wc_u.at[:, i, iu].add(contrib * fzsym)
 
@@ -555,9 +553,9 @@ def vsrd_jax(
                         for iu in range(nu):
                             contrib = (
                                 vsrc_yz * src_u[l, iu]
-                                + vdbl_yz[0, :] * dbl_u[0, l, iu]
-                                - vdbl_yz[1, :] * dbl_u[1, l, iu]
-                                - vdbl_yz[2, :] * dbl_u[2, l, iu]
+                                + vdbl_yz[:, 0] * dbl_u[0, l, iu]
+                                - vdbl_yz[:, 1] * dbl_u[1, l, iu]
+                                - vdbl_yz[:, 2] * dbl_u[2, l, iu]
                             )
                             wc_u = wc_u.at[:, i, iu].add(contrib * fysym * fzsym)
 

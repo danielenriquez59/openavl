@@ -26,20 +26,11 @@ def rebuild_circulation_geometry(
     geometry-design-variable AD path in ``geom_jax.update_geometry``, which
     rebuilds these matrices itself), ``geom`` is returned unchanged.
 
-    When ``flow.mach`` equals the captured ``snapshot_mach`` (concrete scalar
-    comparison at trace time), the baked-in matrices are returned unchanged to
-    avoid a redundant and numerically noisy O(nvor^2) rebuild.
+    Eager and traced calls use the same assembly, even at snapshot Mach, so
+    the primal and its derivative do not depend on whether AD is active.
     """
     if geom.rv1 is None:
         return geom
-
-    snap_mach = geom.snapshot_mach
-    if snap_mach is not None:
-        try:
-            if float(flow.mach) == float(snap_mach):
-                return geom
-        except (TypeError, ValueError):
-            pass
 
     betm = jnp.sqrt(1.0 - flow.mach * flow.mach)
     wc_gam = vvor_jax(

@@ -71,6 +71,32 @@ def test_solve_circulation_custom_vjp_matches_finite_differences():
     assert np.allclose(np.asarray(grad_jax), np.asarray(grad_fd), atol=VJP_TOL, rtol=VJP_TOL)
 
 
+@pytest.mark.parametrize("columns", [None, 3])
+def test_solve_matrix_and_rhs_directional_derivatives(columns):
+    """Exercise the transpose adjoint and AIC gradient with nonsymmetric A."""
+    rng = np.random.default_rng(2026)
+    a = jnp.asarray(rng.normal(size=(5, 5)) + 6.0 * np.eye(5))
+    shape = (5,) if columns is None else (5, columns)
+    b = jnp.asarray(rng.normal(size=shape))
+    weights = jnp.asarray(rng.normal(size=shape))
+    da = jnp.asarray(rng.normal(size=a.shape))
+    db = jnp.asarray(rng.normal(size=b.shape))
+
+    def objective(matrix, rhs):
+        return jnp.sum(weights * solve_circulation(matrix, rhs))
+
+    ga, gb = jax.grad(objective, argnums=(0, 1))(a, b)
+    native = jax.grad(lambda matrix, rhs: jnp.sum(weights * jnp.linalg.solve(matrix, rhs)), argnums=(0, 1))(a, b)
+    for actual, expected in zip((ga, gb), native):
+        np.testing.assert_allclose(actual, expected, rtol=1e-12, atol=1e-12)
+    for direction_a, direction_b in ((da, jnp.zeros_like(db)), (jnp.zeros_like(da), db), (da, db)):
+        ad = jnp.sum(ga * direction_a) + jnp.sum(gb * direction_b)
+        for step in (1e-4, 1e-5, 1e-6):
+            fd = (objective(a + step * direction_a, b + step * direction_b)
+                  - objective(a - step * direction_a, b - step * direction_b)) / (2 * step)
+            np.testing.assert_allclose(ad, fd, atol=1e-8, rtol=1e-7)
+
+
 @pytest.mark.reference
 def test_solve_from_lu_grad_matches_finite_differences():
     """``jax.grad`` runs through ``solve_from_lu``, eager and under ``jax.jit``.

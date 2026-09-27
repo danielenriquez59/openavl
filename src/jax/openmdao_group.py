@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 
 from openavl.jax.backend import jax, jnp
+from openavl.jax.freestream import stability_rates_to_body
 from openavl.jax.geom_jax import (
     run_analysis_with_geometry,
     snapshot_topology,
@@ -68,9 +69,12 @@ def _scalar(value: Any) -> np.float64:
 
 
 def _inputs_to_flow(comp: Any, inputs: Any) -> FlowCondition:
-    """Convert OpenMDAO inputs to a :class:`FlowCondition` (angles in radians)."""
+    """Pack adapter inputs: angles rad, controls deg, rates normalized.
+
+    Rates are converted to core body rates inside the differentiated analysis.
+    """
     delcon = np.array(
-        [_deg_scalar(inputs[name]) for name in comp._control_names],
+        [_scalar(inputs[name]) for name in comp._control_names],
         dtype=np.float64,
     )
     return FlowCondition(
@@ -161,7 +165,7 @@ def _scatter_cotangents(
 
     for n, name in enumerate(comp._control_names):
         if name in d_inputs:
-            d_inputs[name] += float(flow_bar.delcon[n]) * (np.pi / 180.0)
+            d_inputs[name] += float(flow_bar.delcon[n])
 
     offset = 0
     for info in comp._surface_infos:
@@ -183,7 +187,11 @@ def _scatter_cotangents(
 if om is not None:
 
     class OpenAVLComp(om.ExplicitComponent):
-        """OpenMDAO component with geometry design variables and matrix-free AD."""
+        """Geometry and flow AD with degree angles and stability-axis rates.
+
+        pb2v/qc2v/rb2v are normalized by the fixed reference lengths;
+        Cl/Cm/Cn are stability-axis moments.
+        """
 
         def initialize(self) -> None:
             self.options.declare("geo_file", types=str)
@@ -193,7 +201,7 @@ if om is not None:
             from openavl.core.solver import AVLSolver
 
             solver = AVLSolver(self.options["geo_file"], self.options["mass_file"])
-            solver.execute_run(max_iter=1)
+            solver.execute_run(max_iter=0)
             state = solver.state
             model = solver.model
 
@@ -232,6 +240,9 @@ if om is not None:
 
         def compute(self, inputs: Any, outputs: Any) -> None:
             flow = _inputs_to_flow(self, inputs)
+            flow = flow._replace(wrot=stability_rates_to_body(
+                flow.alfa, flow.wrot, self._refs, self._lnasa_sa
+            ))
             params = _inputs_to_design_params(self, inputs)
             result = run_analysis_with_geometry(
                 flow, params, self._topo, self._baseline, self._refs
@@ -249,6 +260,9 @@ if om is not None:
             params = _inputs_to_design_params(self, inputs)
 
             def _analysis(flow_in: FlowCondition, params_in: GeometryDesignParams) -> jnp.ndarray:
+                flow_in = flow_in._replace(wrot=stability_rates_to_body(
+                    flow_in.alfa, flow_in.wrot, self._refs, self._lnasa_sa
+                ))
                 result = run_analysis_with_geometry(
                     flow_in, params_in, self._topo, self._baseline, self._refs
                 )
@@ -325,7 +339,7 @@ def _inputs_to_flow_tangent(comp: Any, d_inputs: Any) -> FlowCondition:
     """Build a tangent :class:`FlowCondition` from OpenMDAO ``d_inputs``."""
     delcon = np.array(
         [
-            _dval(d_inputs, name) * (np.pi / 180.0)
+            _dval(d_inputs, name)
             for name in comp._control_names
         ],
         dtype=np.float64,

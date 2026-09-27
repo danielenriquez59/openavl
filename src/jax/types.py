@@ -20,8 +20,8 @@ class CirculationGeometry(NamedTuple):
     ``aicn``/``wc_gam``/``wv_gam`` from a live, differentiable ``betm`` derived
     from ``FlowCondition.mach`` (A2). Callers that leave them ``None`` (e.g.
     the geometry-design-variable AD path in ``geom_jax.update_geometry``, which
-    already rebuilds these matrices itself from a separately-tracked Mach) are
-    unaffected and keep today's frozen-Mach behavior.
+    already rebuilds these matrices from live Mach) must supply matrices
+    consistent with the flow being analyzed.
     """
 
     rc: Array  # [3, nvor]
@@ -53,6 +53,7 @@ class CirculationGeometry(NamedTuple):
     kutta_j2: Array | None = None  # [n_kutta] last bound vortex on strip
     stripoff_iv: Array | None = None  # [n_stripoff] identity-row indices
     snapshot_mach: Array | None = None  # Mach at which aicn/wc_gam were captured
+    srcore: float = 0.0
 
 
 class GeometryStripMap(NamedTuple):
@@ -197,6 +198,17 @@ class GeometryDesignParams(NamedTuple):
     zles: Array  # [total_sections] leading-edge z positions
 
 
+class ControlTopology(NamedTuple):
+    """Section control definitions and fixed chordwise panel boundaries."""
+
+    active: Array
+    gain: Array
+    xhinge: Array
+    vhinge: Array
+    sgn_dup: Array
+    xpt: Array
+
+
 class GeometryTopology(NamedTuple):
     """Fixed topology and interpolation data captured once at setup (not differentiated)."""
 
@@ -247,6 +259,9 @@ class GeometryTopology(NamedTuple):
     kutta_j2: Array  # [n_kutta] last bound vortex on strip (Kutta row)
     stripoff_iv: Array  # [n_stripoff] identity-row vortex indices
     dxv_frac: Array  # [nvor] baseline dxv/chordv ratio (chordwise dCp spacing fraction)
+    controls: ControlTopology | None = None
+    slopec_sections: Array | None = None  # [nvor, 2] left/right camber samples
+    slopev_sections: Array | None = None
 
 
 class AnalysisGeometry(NamedTuple):
@@ -259,7 +274,12 @@ class AnalysisGeometry(NamedTuple):
 
 
 class FlowCondition(NamedTuple):
-    """Differentiable flow inputs."""
+    """Core flow inputs: alfa/beta in radians, delcon in degrees,
+    and body-axis wrot = angular velocity / freestream speed (1/length).
+
+    Reference lengths use the same length unit as the geometry. OpenMDAO
+    adapters convert normalized stability-axis rates to this convention.
+    """
 
     alfa: Array
     beta: Array

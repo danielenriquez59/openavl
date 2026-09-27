@@ -65,6 +65,46 @@ function createMassCircleTexture() {
 }
 
 /**
+ * Build a canvas texture for a section airfoil filename label.
+ *
+ * @param {string} text
+ * @returns {{ texture: THREE.CanvasTexture, aspect: number }|null}
+ */
+function createTextLabelTexture(text) {
+  const canvas = document.createElement("canvas");
+  const probe = canvas.getContext("2d");
+  if (!probe) return null;
+
+  const fontSize = 28;
+  const font = `600 ${fontSize}px "Segoe UI", system-ui, sans-serif`;
+  probe.font = font;
+  const metrics = probe.measureText(text);
+  const padX = 12;
+  const padY = 8;
+  const width = Math.max(32, Math.ceil(metrics.width + padX * 2));
+  const height = Math.ceil(fontSize + padY * 2);
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.font = font;
+  ctx.fillStyle = "rgba(15, 17, 21, 0.82)";
+  ctx.fillRect(0, 0, width, height);
+  ctx.strokeStyle = "rgba(232, 234, 237, 0.35)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, width - 1, height - 1);
+  ctx.fillStyle = "#e8eaed";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, width / 2, height / 2 + 1);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.needsUpdate = true;
+  return { texture, aspect: width / height };
+}
+
+/**
  * Swap horizontal/vertical pointer axes for OrbitControls rotate drags.
  *
  * AVL uses Z-up; default OrbitControls maps mouse X to azimuth (around Z) and
@@ -154,15 +194,22 @@ export class AircraftViewer3D {
     this.showWake = false;
     this.wireframeOnly = false;
     this.showCg = false;
+    this.showLabels = false;
     this.liftData = null;
     this.wakeData = null;
     this.cgPoint = null;
     /** @type {number|null} */
     this.npX = null;
     this.componentMasses = [];
+    /** @type {Array<{ name: string, x: number, y: number, z: number }>} */
+    this.sectionLabels = [];
+    /** @type {Array<{ surface?: string, name?: string, positions: number[] }>} */
+    this.hingeData = [];
     this.liftGroup = null;
     this.wakeGroup = null;
     this.cgGroup = null;
+    this.labelsGroup = null;
+    this.hingeGroup = null;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(0x0a0d12);
@@ -229,7 +276,14 @@ export class AircraftViewer3D {
     this.btnCg.title = "Toggle center-of-gravity and neutral-point markers";
     this.btnCg.addEventListener("click", () => this.setShowCg(!this.showCg));
 
-    this.overlay.append(this.btnLift, this.btnWake, this.btnMesh, this.btnCg);
+    this.btnLabels = document.createElement("button");
+    this.btnLabels.type = "button";
+    this.btnLabels.dataset.overlay = "labels";
+    this.btnLabels.textContent = "Labels";
+    this.btnLabels.title = "Toggle airfoil labels and control hinge lines";
+    this.btnLabels.addEventListener("click", () => this.setShowLabels(!this.showLabels));
+
+    this.overlay.append(this.btnLift, this.btnWake, this.btnMesh, this.btnCg, this.btnLabels);
     this.container.appendChild(this.overlay);
 
     this.viewOverlay = document.createElement("div");
@@ -296,6 +350,18 @@ export class AircraftViewer3D {
     this.showCg = show;
     this.btnCg?.classList.toggle("active", show);
     this._rebuildCgOverlay();
+  }
+
+  /**
+   * Show or hide AFIL labels and control-surface hinge lines.
+   *
+   * @param {boolean} show
+   */
+  setShowLabels(show) {
+    this.showLabels = show;
+    this.btnLabels?.classList.toggle("active", show);
+    this._rebuildLabelsOverlay();
+    this._rebuildHingeOverlay();
   }
 
   /**
@@ -508,6 +574,11 @@ export class AircraftViewer3D {
 
   /** Rebuild the CG, NP, and component-mass marker meshes. */
   _rebuildCgOverlay() {
+    if (this.cgGroup) {
+      this.cgGroup.traverse((obj) => {
+        if (obj.userData?.disposeMap) obj.material?.map?.dispose?.();
+      });
+    }
     this._disposeOverlayGroup(this.cgGroup);
     this.cgGroup = null;
     const hasCg = Boolean(this.cgPoint);
@@ -525,6 +596,36 @@ export class AircraftViewer3D {
     const maxDim = Math.max(size.x, size.y, size.z, 0.1);
     const markerSize = maxDim * 0.045;
     const massMarkerSize = markerSize * 0.55;
+    const labelHeight = maxDim * 0.035;
+    const labelLift = markerSize * 0.9;
+
+    /**
+     * Add a disposable text sprite near a marker.
+     *
+     * @param {string} text
+     * @param {number} x
+     * @param {number} yPos
+     * @param {number} zPos
+     */
+    const addMarkerLabel = (text, x, yPos, zPos) => {
+      const built = createTextLabelTexture(text);
+      if (!built) return;
+      const label = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: built.texture,
+          transparent: true,
+          opacity: 0.98,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      label.position.set(x, yPos, zPos + labelLift);
+      label.scale.set(labelHeight * built.aspect, labelHeight, 1);
+      label.renderOrder = 4;
+      label.name = `${text.toLowerCase()}-label`;
+      label.userData.disposeMap = true;
+      this.cgGroup.add(label);
+    };
 
     if (hasCg) {
       if (!this._cgSpriteTexture) {
@@ -546,6 +647,7 @@ export class AircraftViewer3D {
       sprite.renderOrder = 3;
       sprite.name = "cg-marker";
       this.cgGroup.add(sprite);
+      addMarkerLabel("CG", this.cgPoint.x, this.cgPoint.y, this.cgPoint.z);
     }
 
     if (hasNp) {
@@ -569,6 +671,7 @@ export class AircraftViewer3D {
       npSprite.name = "np-marker";
       npSprite.userData.xnp = this.npX;
       this.cgGroup.add(npSprite);
+      addMarkerLabel("NP", this.npX, y, z);
     }
 
     if (!this._massSpriteTexture) {
@@ -597,6 +700,57 @@ export class AircraftViewer3D {
     }
 
     this.scene.add(this.cgGroup);
+  }
+
+  /** Rebuild AFIL filename sprites at section leading-edge points. */
+  _rebuildLabelsOverlay() {
+    if (this.labelsGroup) {
+      this.labelsGroup.traverse((obj) => {
+        obj.material?.map?.dispose?.();
+      });
+    }
+    this._disposeOverlayGroup(this.labelsGroup);
+    this.labelsGroup = null;
+    if (!this.showLabels || !this.sectionLabels.length) return;
+
+    const box = this._getModelBounds();
+    const size = box ? box.getSize(new THREE.Vector3()) : new THREE.Vector3(1, 1, 1);
+    const maxDim = Math.max(size.x, size.y, size.z, 0.1);
+    const labelHeight = maxDim * 0.04;
+
+    const group = new THREE.Group();
+    group.name = "section-airfoil-labels";
+    group.renderOrder = 4;
+
+    for (const label of this.sectionLabels) {
+      const name = String(label?.name ?? "").trim();
+      const x = Number(label?.x);
+      const y = Number(label?.y);
+      const z = Number(label?.z);
+      if (!name || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) continue;
+
+      const built = createTextLabelTexture(name);
+      if (!built) continue;
+
+      const sprite = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          map: built.texture,
+          transparent: true,
+          opacity: 0.98,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      sprite.position.set(x, y, z);
+      sprite.scale.set(labelHeight * built.aspect, labelHeight, 1);
+      sprite.renderOrder = 4;
+      sprite.name = `airfoil-label-${name}`;
+      group.add(sprite);
+    }
+
+    if (!group.children.length) return;
+    this.labelsGroup = group;
+    this.scene.add(group);
   }
 
   /** Render loop. */
@@ -696,6 +850,17 @@ export class AircraftViewer3D {
    *     color?: number[],
    *     positions: number[],
    *     indices: number[]
+   *   }>,
+   *   hinges?: Array<{
+   *     surface?: string,
+   *     name?: string,
+   *     positions: number[]
+   *   }>,
+   *   section_labels?: Array<{
+   *     name: string,
+   *     x: number,
+   *     y: number,
+   *     z: number
    *   }>
    * }} geometry
    */
@@ -712,8 +877,60 @@ export class AircraftViewer3D {
       this._addMesh(body, { isBody: true });
     }
 
+    this.hingeData = Array.isArray(geometry?.hinges) ? geometry.hinges : [];
+    this.sectionLabels = Array.isArray(geometry?.section_labels) ? geometry.section_labels : [];
     this.setWireframeOnly(this.wireframeOnly);
+    this._rebuildLabelsOverlay();
+    this._rebuildHingeOverlay();
     this.fitToModel();
+  }
+
+  /**
+   * Rebuild dark-gray dashed control hinge lines when Labels is enabled.
+   */
+  _rebuildHingeOverlay() {
+    this._disposeOverlayGroup(this.hingeGroup);
+    this.hingeGroup = null;
+    if (!this.showLabels || !this.hingeData.length) return;
+
+    const box = this._getModelBounds();
+    const size = box ? box.getSize(new THREE.Vector3()) : new THREE.Vector3(1, 1, 1);
+    const maxDim = Math.max(size.x, size.y, size.z, 0.1);
+    const dashSize = maxDim * 0.012;
+    const gapSize = maxDim * 0.008;
+
+    const group = new THREE.Group();
+    group.name = "control-hinges";
+    group.renderOrder = 5;
+
+    for (const hinge of this.hingeData) {
+      if (!Array.isArray(hinge.positions) || hinge.positions.length < 6) continue;
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(hinge.positions, 3),
+      );
+      const line = new THREE.Line(
+        geometry,
+        new THREE.LineDashedMaterial({
+          color: 0x3f3f46,
+          dashSize,
+          gapSize,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      line.computeLineDistances();
+      line.name = `${hinge.surface ?? "surface"}-${hinge.name ?? "control"}-hinge`;
+      line.renderOrder = 5;
+      line.userData.controlHinge = true;
+      group.add(line);
+    }
+
+    if (!group.children.length) return;
+    this.hingeGroup = group;
+    this.scene.add(group);
   }
 
   /**
@@ -860,6 +1077,15 @@ export class AircraftViewer3D {
 
   /** Remove all surface meshes from the scene. */
   _clearMeshes() {
+    this._disposeOverlayGroup(this.hingeGroup);
+    this.hingeGroup = null;
+    if (this.labelsGroup) {
+      this.labelsGroup.traverse((obj) => {
+        obj.material?.map?.dispose?.();
+      });
+    }
+    this._disposeOverlayGroup(this.labelsGroup);
+    this.labelsGroup = null;
     for (const obj of this.meshes) {
       this.scene.remove(obj);
       obj.geometry?.dispose?.();
@@ -885,12 +1111,26 @@ export class AircraftViewer3D {
     window.removeEventListener("resize", this._boundResize);
     this._disposeOverlayGroup(this.liftGroup);
     this._disposeOverlayGroup(this.wakeGroup);
+    if (this.cgGroup) {
+      this.cgGroup.traverse((obj) => {
+        if (obj.userData?.disposeMap) obj.material?.map?.dispose?.();
+      });
+    }
     this._disposeOverlayGroup(this.cgGroup);
+    if (this.labelsGroup) {
+      this.labelsGroup.traverse((obj) => {
+        obj.material?.map?.dispose?.();
+      });
+    }
+    this._disposeOverlayGroup(this.labelsGroup);
     this.liftGroup = null;
     this.wakeGroup = null;
     this.cgGroup = null;
+    this.labelsGroup = null;
     this._cgSpriteTexture?.dispose?.();
     this._cgSpriteTexture = null;
+    this._npSpriteTexture?.dispose?.();
+    this._npSpriteTexture = null;
     this._massSpriteTexture?.dispose?.();
     this._massSpriteTexture = null;
     this.overlay?.remove();

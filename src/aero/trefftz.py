@@ -129,6 +129,7 @@ def _trefftz_kernel(
     y2: np.ndarray,
     z2: np.ndarray,
     rcore: np.ndarray | None = None,
+    active: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return 2D Biot-Savart (dterm, yterm) arrays with shape (nc, nv).
 
@@ -151,8 +152,17 @@ def _trefftz_kernel(
     else:
         rsq1 = np.hypot(dy1 * dy1 + dz1 * dz1, rcore * rcore)
         rsq2 = np.hypot(dy2 * dy2 + dz2 * dz2, rcore * rcore)
+    # An inactive source must never enter singular division: multiplying a
+    # singular kernel by zero later still propagates NaNs into the sums.
+    if active is not None:
+        mask = np.asarray(active, dtype=bool)[np.newaxis, :]
+        rsq1 = np.where(mask, rsq1, 1.0)
+        rsq2 = np.where(mask, rsq2, 1.0)
     dterm = (dz1 / rsq1) - (dz2 / rsq2)
     yterm = (-dy1 / rsq1) + (dy2 / rsq2)
+    if active is not None:
+        dterm = np.where(mask, dterm, 0.0)
+        yterm = np.where(mask, yterm, 0.0)
     return dterm, yterm
 
 
@@ -246,7 +256,7 @@ def _accumulate_trefftz_induced(
             vy_g[:] += cvy_g
             vz_g[:] += cvz_g
 
-    dterm, yterm = _trefftz_kernel(ycntr, zcntr, rt1_y, rt1_z, rt2_y, rt2_z, rcore_ij)
+    dterm, yterm = _trefftz_kernel(ycntr, zcntr, rt1_y, rt1_z, rt2_y, rt2_z, rcore_ij, active)
     # Sum velocity contributions from wake vortices (real vortex)
     _add(dterm, yterm, 1.0)
 
@@ -254,20 +264,20 @@ def _accumulate_trefftz_induced(
         # Sum velocity contributions from wake vortices (z-image)
         z1z = zoff - rt1_z
         z2z = zoff - rt2_z
-        dterm, yterm = _trefftz_kernel(ycntr, zcntr, rt1_y, z1z, rt2_y, z2z)
+        dterm, yterm = _trefftz_kernel(ycntr, zcntr, rt1_y, z1z, rt2_y, z2z, active=active)
         _add(dterm, yterm, -float(izsym))
 
     if iysym != 0:
         # Sum velocity contributions from wake vortices (y-image)
         y1y = yoff - rt1_y
         y2y = yoff - rt2_y
-        dterm, yterm = _trefftz_kernel(ycntr, zcntr, y1y, rt1_z, y2y, rt2_z)
+        dterm, yterm = _trefftz_kernel(ycntr, zcntr, y1y, rt1_z, y2y, rt2_z, active=active)
         _add(dterm, yterm, -float(iysym))
 
         if izsym != 0:
             z1z = zoff - rt1_z
             z2z = zoff - rt2_z
-            dterm, yterm = _trefftz_kernel(ycntr, zcntr, y1y, z1z, y2y, z2z)
+            dterm, yterm = _trefftz_kernel(ycntr, zcntr, y1y, z1z, y2y, z2z, active=active)
             sym_yz = float(iysym * izsym)
             cvy, cvz, cvy_u, cvz_u, cvy_d, cvz_d, cvy_g, cvz_g = _contract_trefftz_kernel(
                 dterm, yterm, gams, gams_u, gams_d, gams_g, active, hpi, sym_yz,

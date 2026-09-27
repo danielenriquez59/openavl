@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-import warnings
 from typing import Any
 
 import numpy as np
 
-from openavl.geom.spacing import spacer
+from openavl.geom.spacing import akima, spacer
 from openavl.jax.aic import vvor_jax
 from openavl.jax.analysis import run_analysis, _make_forces_checkpoint
 from openavl.jax.backend import jax, jnp
@@ -17,6 +16,7 @@ from openavl.jax.types import (
     AnalysisGeometry,
     AnalysisResult,
     CirculationGeometry,
+    ControlTopology,
     FlowCondition,
     ForceGeometry,
     GeometryDesignParams,
@@ -28,7 +28,7 @@ from openavl.jax.types import (
 
 _vvor_jax_remat = jax.checkpoint(
     vvor_jax,
-    static_argnums=(0, 1, 2, 3, 4, 5, 6, 13),
+    static_argnums=(1, 2, 3, 4, 5, 6, 13),
 )
 
 
@@ -341,6 +341,36 @@ def snapshot_topology(state: Any, model: Any) -> GeometryTopology:
 
     n_sections = int(topo_arrays["surf_sec_offset"][-1] + topo_arrays["surf_nsec"][-1]) if len(model.surfaces) else 0
 
+    nc = int(state.ncontrol)
+    active = np.zeros((n_sections, nc), dtype=bool)
+    gain = np.zeros((n_sections, nc))
+    xhinge = np.zeros((n_sections, nc))
+    vhinge = np.zeros((n_sections, nc, 3))
+    sgn_dup = np.ones((n_sections, nc))
+    control_indices = {name: i for i, name in enumerate(state.control_names[:nc])}
+    for i, sec in enumerate(sec for surf in model.surfaces for sec in surf.sections):
+        for control in sec.controls:
+            n = control_indices[control.name]
+            active[i, n] = True
+            gain[i, n] = control.gain
+            xhinge[i, n] = control.xhinge
+            vhinge[i, n] = control.vhinge
+            sgn_dup[i, n] = control.sgn_dup
+    xpt = np.zeros(nvor)
+    for j in range(nstrip):
+        start, count = int(state.ijfrst[j]), int(state.nvstrp[j])
+        xpt[start:start + count] = np.concatenate(([0.0], np.cumsum(dxv_frac[start:start + count - 1])))
+    controls = ControlTopology(*(jnp.asarray(a) for a in (active, gain, xhinge, vhinge, sgn_dup, xpt)))
+    sections = [sec for surf in model.surfaces for sec in surf.sections]
+    slopec_sections = np.zeros((nvor, 2))
+    slopev_sections = np.zeros((nvor, 2))
+    for i, j in enumerate(vortex_to_strip):
+        for side, indices in enumerate((topo_arrays["sec_left"], topo_arrays["sec_right"])):
+            camber = sections[indices[j]].airfoil_camber
+            if camber is not None and camber.x.size > 1:
+                slopec_sections[i, side] = akima(camber.x, camber.s, xcp[i])[0]
+                slopev_sections[i, side] = akima(camber.x, camber.s, xvr[i])[1]
+
     return GeometryTopology(
         nstrip=nstrip,
         nvor=nvor,
@@ -389,6 +419,9 @@ def snapshot_topology(state: Any, model: Any) -> GeometryTopology:
         kutta_j2=jnp.asarray(kutta_j2, dtype=jnp.int32),
         stripoff_iv=jnp.asarray(stripoff_iv, dtype=jnp.int32),
         dxv_frac=jnp.asarray(dxv_frac, dtype=jnp.float64),
+        controls=controls,
+        slopec_sections=jnp.asarray(slopec_sections),
+        slopev_sections=jnp.asarray(slopev_sections),
     )
 
 
@@ -755,6 +788,51 @@ def rebuild_aicn_jax(
     return aicn
 
 
+def _control_normals(topo, params, enc, chord):
+    """Rebuild per-degree normal sensitivities, including moving hinges.
+
+    Panel/control overlap is piecewise differentiable; the panel topology
+    and the section definitions of controls remain fixed.
+    """
+    controls = topo.controls
+    if controls is None:
+        raise ValueError("Control geometry requires snapshot_topology(state, model)")
+    left, right = topo.sec_left, topo.sec_right
+    fc = topo.fc[:, None]
+    scal = topo.surf_xyzscal[topo.model_surf_idx]
+    cl = (params.chords[left] * scal[:, 0])[:, None]
+    cr = (params.chords[right] * scal[:, 0])[:, None]
+    hl, hr = controls.xhinge[left], controls.xhinge[right]
+    hinge = (1.0 - fc) * cl * hl + fc * cr * hr
+    leading = jnp.where(hinge >= 0.0, hinge, 0.0)
+    trailing = jnp.where(hinge >= 0.0, chord[:, None], -hinge)
+    gain = (1.0 - fc) * controls.gain[left] + fc * controls.gain[right]
+    active = controls.active[left] & controls.active[right]
+
+    # Match makesurf's explicit vectors and its default section hinge line.
+    default = jnp.stack([
+        (params.xles[right] - params.xles[left])[:, None] + jnp.abs(cr * hr) - jnp.abs(cl * hl),
+        jnp.broadcast_to((params.yles[right] - params.yles[left])[:, None], hinge.shape),
+        jnp.broadcast_to((params.zles[right] - params.zles[left])[:, None], hinge.shape),
+    ], axis=-1) * scal[:, None, :]
+    explicit = controls.vhinge[left] * scal[:, None, :]
+    vh = jnp.where(jnp.sum(explicit**2, axis=-1, keepdims=True) > 0.0, explicit, default)
+    norm2 = jnp.sum(vh**2, axis=-1, keepdims=True)
+    vh = vh / jnp.sqrt(jnp.where(norm2 > 0.0, norm2, 1.0))
+    vh = vh * jnp.stack([jnp.ones_like(topo.fc), jnp.where(topo.is_mirror, -1.0, 1.0), jnp.ones_like(topo.fc)], axis=-1)[:, None, :]
+    gain *= jnp.where(topo.is_mirror[:, None], -controls.sgn_dup[left], 1.0)
+
+    v2s = topo.vortex_to_strip
+    dx = topo.dxv_frac[:, None]
+    dx_safe = jnp.where(dx != 0.0, dx, 1.0)
+    chord_safe = jnp.where(chord != 0.0, chord, 1.0)[:, None]
+    fl = jnp.clip((leading[v2s] / chord_safe[v2s] - controls.xpt[:, None]) / dx_safe, 0.0, 1.0)
+    ft = jnp.clip((trailing[v2s] / chord_safe[v2s] - controls.xpt[:, None]) / dx_safe, 0.0, 1.0)
+    dcontrol = jnp.where(active[v2s] & (dx != 0.0), gain[v2s] * (ft - fl), 0.0)
+    normal = jnp.cross(vh[v2s], enc.T[:, None, :])
+    return jnp.transpose(normal * (dcontrol * (jnp.pi / 180.0))[:, :, None], (2, 0, 1))
+
+
 def update_geometry(
     topo: GeometryTopology,
     params: GeometryDesignParams,
@@ -764,14 +842,8 @@ def update_geometry(
 ) -> AnalysisGeometry:
     """Update analysis geometry from section-level design parameters.
 
-    A8 status of geometry-dependent quantities not recomputed here:
-    ``wcsrd_u``/``wvsrd_u`` (body influence at moving control points and
-    vortex midpoints) and ``enc_d`` (control-surface normal sensitivities)
-    remain frozen at the baseline snapshot -- recomputing them requires
-    re-deriving body source/doublet or hinge-normal sensitivities inside the
-    traced path, which is out of scope for this fix. A warning is raised
-    below when a body or control surface is present so callers know those
-    gradients are incomplete.
+    Control normals and panel/control overlap track the design parameters.
+    Body influences are rebuilt at these moving points by run_analysis.
     ``ssurf``/``cavesurf`` (per-surface area/average-chord, carried in
     ``ForceGeometry`` from the baseline) are likewise left frozen; today's
     JAX force integration only uses their array shape, not their values, so
@@ -790,24 +862,18 @@ def update_geometry(
         rle1, rle2, rle, chord, chord1, chord2, topo
     )
 
-    if baseline.body.nl.shape[0] > 0:
-        warnings.warn(
-            "update_geometry: wcsrd_u/wvsrd_u (body source/doublet influence "
-            "at control points and vortex midpoints) is frozen at the "
-            "baseline snapshot; gradients of body-carrying models w.r.t. "
-            "geometry design variables are incomplete.",
-            stacklevel=2,
-        )
-    if int(baseline.circulation.ncontrol) > 0:
-        warnings.warn(
-            "update_geometry: enc_d (control-surface normal sensitivities) "
-            "is frozen at the baseline snapshot; gradients of control "
-            "derivatives w.r.t. geometry design variables are incomplete.",
-            stacklevel=2,
-        )
-
+    slopec, slopev = topo.slopec, topo.slopev
+    if topo.slopec_sections is not None:
+        # Camber interpolation is chord-weighted, so taper changes its slope
+        # even though section airfoil shapes and sample fractions are fixed.
+        left_weight = (1.0 - topo.fc) * params.chords[topo.sec_left] * topo.xyzscal_x
+        right_weight = topo.fc * params.chords[topo.sec_right] * topo.xyzscal_x
+        weights = jnp.stack([left_weight, right_weight], axis=-1) / jnp.where(chord != 0.0, chord, 1.0)[:, None]
+        weights = weights[topo.vortex_to_strip]
+        slopec = jnp.sum(weights * topo.slopec_sections, axis=1)
+        slopev = jnp.sum(weights * topo.slopev_sections, axis=1)
     enc, env, ess, ensy, ensz, xsref, ysref, zsref, lvnc = encalc_jax(
-        rv1, rv2, rv, ainc, topo.slopec, topo.slopev, wstrip, topo
+        rv1, rv2, rv, ainc, slopec, slopev, wstrip, topo
     )
 
     if mach is None:
@@ -853,16 +919,21 @@ def update_geometry(
     circulation = CirculationGeometry(
         rc=rc,
         enc=enc,
-        enc_d=base_circ.enc_d,  # A8: frozen at baseline; see update_geometry docstring.
+        enc_d=_control_normals(topo, params, enc, chord) if base_circ.ncontrol else base_circ.enc_d,
         aicn=aicn,
         wc_gam=wc_gam,
         wv_gam=wv_gam,
-        wcsrd_u=base_circ.wcsrd_u,  # A8: frozen at baseline; see update_geometry docstring.
-        wvsrd_u=base_circ.wvsrd_u,  # A8: frozen at baseline, same as wcsrd_u.
+        wcsrd_u=base_circ.wcsrd_u,  # Rebuilt at the moving points by run_analysis.
+        wvsrd_u=base_circ.wvsrd_u,
         lvnc=lvnc,
         lvalbe=base_circ.lvalbe,
         numax=base_circ.numax,
         ncontrol=base_circ.ncontrol,
+        iysym=base_circ.iysym,
+        izsym=base_circ.izsym,
+        ysym=base_circ.ysym,
+        zsym=base_circ.zsym,
+        srcore=base_circ.srcore,
     )
 
     base_force = baseline.force

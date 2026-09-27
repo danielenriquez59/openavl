@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from openavl.fileio.cad_export import build_body_mesh, build_surface_mesh
 from openavl.geom.geometry import solver_surface_name
-from openavl.geom.display import BODY_COLOR, surface_color
+from openavl.geom.display import BODY_COLOR, control_hinge_polylines, section_airfoil_labels, surface_color
 
 if TYPE_CHECKING:
     from openavl.core.state import AVLState
@@ -109,8 +109,9 @@ def model_to_geometry(
     Returns
     -------
     dict
-        ``{"surfaces": [...], "bodies": [...]}`` where each entry has ``name``,
-        ``color`` (RGBA floats), ``positions``, ``indices``, and optional ``dcp``.
+        ``{"surfaces": [...], "bodies": [...], "hinges": [...],
+        "section_labels": [...]}`` with mesh geometry, control-hinge
+        polylines, and AFIL section labels at leading-edge points.
     """
     from openavl.core.state import AVLState
     from openavl.geom.geometry import build_geometry
@@ -160,4 +161,23 @@ def model_to_geometry(
                 }
             )
 
-    return {"surfaces": surfaces, "bodies": bodies}
+    hinges = [
+        {
+            "surface": surface_name,
+            "name": control_name,
+            "positions": [coordinate for point in points for coordinate in point],
+        }
+        for surface_name, control_name, points in control_hinge_polylines(model)
+    ]
+
+    section_labels = [
+        {"name": name, "x": point[0], "y": point[1], "z": point[2]}
+        for name, point in section_airfoil_labels(model)
+    ]
+
+    return {
+        "surfaces": surfaces,
+        "bodies": bodies,
+        "hinges": hinges,
+        "section_labels": section_labels,
+    }
