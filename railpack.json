@@ -4,7 +4,17 @@
   "packages": {
     "python": "3.11"
   },
+  "steps": {
+    "build": {
+      "commands": [
+        "python -m venv /app/.venv",
+        "/app/.venv/bin/pip install --upgrade pip",
+        "/app/.venv/bin/pip install \".[web]\""
+      ]
+    }
+  },
   "deploy": {
-    "startCommand": "uvicorn openavl.web.app:app --host 0.0.0.0 --port $PORT"
+    "startCommand": "/app/.venv/bin/python -m uvicorn openavl.web.app:app --host 0.0.0.0 --port $PORT",
+    "paths": ["/app/.venv/bin"]
   }
 }
