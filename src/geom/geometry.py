@@ -27,9 +27,9 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
     if nsec < 2:
         return
 
-    nvc1 = surf.n_chord or 1
+    n_chord = surf.n_chord or 1
     cspace = surf.c_space
-    nvs1 = surf.n_span or 0
+    n_span_surf = surf.n_span or 0
     sspace = surf.s_space
     xyzscal = np.asarray(surf.scale, dtype=np.float64)
     xyztran = np.asarray(surf.translate, dtype=np.float64)
@@ -73,12 +73,12 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
         else:
             clcdsec.append(np.zeros(6, dtype=np.float64))
 
-    nscon = [len(s.controls) for s in surf.sections]
-    icontd = [[c.index for c in s.controls] for s in surf.sections]
-    gaind = [[c.gain for c in s.controls] for s in surf.sections]
+    nscon   = [len(s.controls) for s in surf.sections]
+    icontd  = [[c.index for c in s.controls] for s in surf.sections]
+    gaind   = [[c.gain for c in s.controls] for s in surf.sections]
     xhinged = [[c.xhinge for c in s.controls] for s in surf.sections]
     vhinged = [[c.vhinge for c in s.controls] for s in surf.sections]
-    refld = [[c.sgn_dup for c in s.controls] for s in surf.sections]
+    refld   = [[c.sgn_dup for c in s.controls] for s in surf.sections]
 
     # IMAGS: +1 root at edge 1, -1 root at edge 2 (reflected/duplicated surfaces).
     imags = surf.imags if surf.imags else 1
@@ -86,7 +86,7 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
     comp_index = surf.component if surf.component else (isurf + 1)
     state.ifrst[isurf] = state.nvor
     state.jfrst[isurf] = state.nstrip
-    state.nk[isurf] = nvc1
+    state.nk[isurf] = n_chord
 
     # Arc-length positions of sections along wing trace in y-z plane.
     yzlen = np.zeros(nsec, dtype=np.float64)
@@ -95,12 +95,12 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
         dz = xyzles[isec][2] - xyzles[isec - 1][2]
         yzlen[isec] = yzlen[isec - 1] + math.sqrt(dy * dy + dz * dz)
 
-    nvs = nvs1
+    nvs = n_span_surf
     ypt = np.zeros(502, dtype=np.float64)
     ycp = np.zeros(502, dtype=np.float64)
     iptloc = np.zeros(nsec + 1, dtype=np.int32)
 
-    if nvs1 == 0:
+    if n_span_surf == 0:
         # Per-section-interval spanwise spacing when surface NVS is not set.
         nvs = sum(nspans[: nsec - 1])
         ypt[0] = yzlen[0]
@@ -179,7 +179,7 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
     xyzle_r = np.zeros(3, dtype=np.float64)
     iscon_l = np.zeros(ncontrol + 1, dtype=np.int32)
     iscon_r = np.zeros(ncontrol + 1, dtype=np.int32)
-    vh = np.zeros(3, dtype=np.float64)
+    hinge_vec = np.zeros(3, dtype=np.float64)
     gainda = np.zeros(ncontrol, dtype=np.float64)
     xled_arr = np.zeros(ncontrol, dtype=np.float64)
     xted_arr = np.zeros(ncontrol, dtype=np.float64)
@@ -236,17 +236,17 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
             ipt2 = ipt_l + ispan
             ivs = ipt_l + ispan - 1
             denom = ypt[ipt_r] - ypt[ipt_l]
-            f1 = (ypt[ipt1] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
-            f2 = (ypt[ipt2] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
-            fc = (ycp[ivs] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
+            span_frac_le = (ypt[ipt1] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
+            span_frac_te = (ypt[ipt2] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
+            span_frac_cp = (ycp[ivs] - ypt[ipt_l]) / denom if denom != 0.0 else 0.0
 
             j = state.nstrip
             state.nstrip += 1
             state.nj[isurf] += 1
 
-            rle1 = (1.0 - f1) * xyzle_l + f1 * xyzle_r
-            rle2 = (1.0 - f2) * xyzle_l + f2 * xyzle_r
-            rle = (1.0 - fc) * xyzle_l + fc * xyzle_r
+            rle1 = (1.0 - span_frac_le) * xyzle_l + span_frac_le * xyzle_r
+            rle2 = (1.0 - span_frac_te) * xyzle_l + span_frac_te * xyzle_r
+            rle = (1.0 - span_frac_cp) * xyzle_l + span_frac_cp * xyzle_r
             if imags < 0:
                 # Reverse strip edges so positive Gamma sense is preserved.
                 rle1, rle2 = rle2.copy(), rle1.copy()
@@ -255,57 +255,57 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
             state.rle2[:, j] = rle2
             state.rle[:, j] = rle
 
-            chord1 = (1.0 - f1) * chord_l + f1 * chord_r
-            chord2 = (1.0 - f2) * chord_l + f2 * chord_r
+            chord1 = (1.0 - span_frac_le) * chord_l + span_frac_le * chord_r
+            chord2 = (1.0 - span_frac_te) * chord_l + span_frac_te * chord_r
             if imags < 0:
                 chord1, chord2 = chord2, chord1
             state.chord1[j] = chord1
             state.chord2[j] = chord2
-            state.chord[j] = (1.0 - fc) * chord_l + fc * chord_r
+            state.chord[j] = (1.0 - span_frac_cp) * chord_l + span_frac_cp * chord_r
 
-            state.wstrip[j] = abs(f2 - f1) * width
+            state.wstrip[j] = abs(span_frac_te - span_frac_le) * width
             state.tanle[j] = (xyzle_r[0] - xyzle_l[0]) / width
             if imags < 0:
                 state.tanle[j] = -state.tanle[j]
             state.tante[j] = (xyzle_r[0] + chord_r - xyzle_l[0] - chord_l) / width
 
             # Incidence from ATAN of chord projections, not linear AINC interpolation.
-            chsin = chsin_l + fc * (chsin_r - chsin_l)
-            chcos = chcos_l + fc * (chcos_r - chcos_l)
+            chsin = chsin_l + span_frac_cp * (chsin_r - chsin_l)
+            chcos = chcos_l + span_frac_cp * (chcos_r - chcos_l)
             state.ainc[j] = math.atan2(chsin, chcos)
-            chsin1 = (1.0 - f1) * chsin_l + f1 * chsin_r
-            chcos1 = (1.0 - f1) * chcos_l + f1 * chcos_r
-            chsin2 = (1.0 - f2) * chsin_l + f2 * chsin_r
-            chcos2 = (1.0 - f2) * chcos_l + f2 * chcos_r
+            chsin1 = (1.0 - span_frac_le) * chsin_l + span_frac_le * chsin_r
+            chcos1 = (1.0 - span_frac_le) * chcos_l + span_frac_le * chcos_r
+            chsin2 = (1.0 - span_frac_te) * chsin_l + span_frac_te * chsin_r
+            chcos2 = (1.0 - span_frac_te) * chcos_l + span_frac_te * chcos_r
             state.ainc1[j] = math.atan2(chsin1, chcos1)
             state.ainc2[j] = math.atan2(chsin2, chcos2)
 
             state.ijfrst[j] = state.nvor
-            state.nvstrp[j] = nvc1
+            state.nvstrp[j] = n_chord
             state.lssurf[j] = isurf
 
             chord_c = state.chord[j]
-            claf_c = (1.0 - fc) * (chord_l / chord_c) * claf_l + fc * (chord_r / chord_c) * claf_r
+            claf_c = (1.0 - span_frac_cp) * (chord_l / chord_c) * claf_l + span_frac_cp * (chord_r / chord_c) * claf_r
             # Chordwise vortex/control/source point spacing fractions.
-            xpt, xvr, xsr, xcp_arr = cspacer(nvc1, cspace, claf_c)
+            xpt, xvr, xsr, xcp_arr = cspacer(n_chord, cspace, claf_c)
 
             # Strip-level control-surface geometry (independent of chordwise index).
             gainda.fill(0.0)
             xled_arr.fill(0.0)
             xted_arr.fill(0.0)
             for n in range(1, ncontrol + 1):
-                icl = iscon_l[n]
-                icr = iscon_r[n]
-                if icl == 0 or icr == 0:
+                ctrl_idx_l = iscon_l[n]
+                ctrl_idx_r = iscon_r[n]
+                if ctrl_idx_l == 0 or ctrl_idx_r == 0:
                     continue
                 ni = n - 1
                 gainda[ni] = (
-                    gaind[isec][icl - 1] * (1.0 - fc)
-                    + gaind[isec + 1][icr - 1] * fc
+                    gaind[isec][ctrl_idx_l - 1] * (1.0 - span_frac_cp)
+                    + gaind[isec + 1][ctrl_idx_r - 1] * span_frac_cp
                 )
                 xhd = (
-                    chord_l * xhinged[isec][icl - 1] * (1.0 - fc)
-                    + chord_r * xhinged[isec + 1][icr - 1] * fc
+                    chord_l * xhinged[isec][ctrl_idx_l - 1] * (1.0 - span_frac_cp)
+                    + chord_r * xhinged[isec + 1][ctrl_idx_r - 1] * span_frac_cp
                 )
                 if xhd >= 0.0:
                     # TE control surface: hinge at xhd, deflects to trailing edge.
@@ -313,21 +313,21 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
                 else:
                     # LE control surface: hinge at -xhd, deflects from leading edge.
                     xled_arr[ni], xted_arr[ni] = 0.0, -xhd
-                vh[:] = np.asarray(vhinged[isec][icl - 1], dtype=np.float64) * xyzscal
-                vsq = float(np.dot(vh, vh))
-                if vsq == 0.0:
+                hinge_vec[:] = np.asarray(vhinged[isec][ctrl_idx_l - 1], dtype=np.float64) * xyzscal
+                hinge_vec_sq = float(np.dot(hinge_vec, hinge_vec))
+                if hinge_vec_sq == 0.0:
                     # Default hinge vector along hingeline between sections.
-                    vh[0] = (
+                    hinge_vec[0] = (
                         xyzles[isec + 1][0]
-                        + abs(chord_r * xhinged[isec + 1][icr - 1])
-                        - (xyzles[isec][0] + abs(chord_l * xhinged[isec][icl - 1]))
+                        + abs(chord_r * xhinged[isec + 1][ctrl_idx_r - 1])
+                        - (xyzles[isec][0] + abs(chord_l * xhinged[isec][ctrl_idx_l - 1]))
                     ) * xyzscal[0]
-                    vh[1] = (xyzles[isec + 1][1] - xyzles[isec][1]) * xyzscal[1]
-                    vh[2] = (xyzles[isec + 1][2] - xyzles[isec][2]) * xyzscal[2]
-                    vsq = float(np.dot(vh, vh))
-                vmod = math.sqrt(vsq) if vsq > 0.0 else 1.0
-                state.vhinge[:, j, ni] = vh / vmod
-                state.vrefl[j, ni] = refld[isec][icl - 1]
+                    hinge_vec[1] = (xyzles[isec + 1][1] - xyzles[isec][1]) * xyzscal[1]
+                    hinge_vec[2] = (xyzles[isec + 1][2] - xyzles[isec][2]) * xyzscal[2]
+                    hinge_vec_sq = float(np.dot(hinge_vec, hinge_vec))
+                hinge_vec_mag = math.sqrt(hinge_vec_sq) if hinge_vec_sq > 0.0 else 1.0
+                state.vhinge[:, j, ni] = hinge_vec / hinge_vec_mag
+                state.vrefl[j, ni] = refld[isec][ctrl_idx_l - 1]
                 if xhd >= 0.0:
                     state.phinge[0, j, ni] = state.rle[0, j] + xhd
                     state.phinge[1, j, ni] = state.rle[1, j]
@@ -338,14 +338,14 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
                     state.phinge[2, j, ni] = state.rle[2, j]
 
             # Interpolate CD-CL polar data from input sections to strip.
-            state.clcd[j, :] = (1.0 - fc) * clcdsec[isec] + fc * clcdsec[isec + 1]
+            state.clcd[j, :] = (1.0 - span_frac_cp) * clcdsec[isec] + span_frac_cp * clcdsec[isec + 1]
             state.lviscstrp[j] = state.clcd[j, 3] != 0.0
 
             # All chordwise vortices on this strip at once.
-            ivc_idx = np.arange(1, nvc1 + 1, dtype=np.int32)
+            ivc_idx = np.arange(1, n_chord + 1, dtype=np.int32)
             i_start = state.nvor
-            i_arr = np.arange(i_start, i_start + nvc1, dtype=np.int32)
-            state.nvor += nvc1
+            i_arr = np.arange(i_start, i_start + n_chord, dtype=np.int32)
+            state.nvor += n_chord
 
             xvr_v = xvr[ivc_idx]
             xcp_v = xcp_arr[ivc_idx]
@@ -369,29 +369,29 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
             state.rs[2, i_arr] = state.rle[2, j]
 
             # Camber slope at control point and vortex midpoint (Akima interp).
-            s_l = np.zeros(nvc1, dtype=np.float64)
-            s_r = np.zeros(nvc1, dtype=np.float64)
-            sv_l = np.zeros(nvc1, dtype=np.float64)
-            sv_r = np.zeros(nvc1, dtype=np.float64)
+            slope_cp_l = np.zeros(n_chord, dtype=np.float64)
+            slope_cp_r = np.zeros(n_chord, dtype=np.float64)
+            slope_vr_l = np.zeros(n_chord, dtype=np.float64)
+            slope_vr_r = np.zeros(n_chord, dtype=np.float64)
             if nasec[isec] > 1:
                 for k, ivc in enumerate(ivc_idx):
-                    s_l[k], _ = akima(xasec[isec], sasec[isec], xcp_arr[ivc])
-                    _, sv_l[k] = akima(xasec[isec], sasec[isec], xvr[ivc])
+                    slope_cp_l[k], _ = akima(xasec[isec], sasec[isec], xcp_arr[ivc])
+                    _, slope_vr_l[k] = akima(xasec[isec], sasec[isec], xvr[ivc])
             if nasec[isec + 1] > 1:
                 for k, ivc in enumerate(ivc_idx):
-                    s_r[k], _ = akima(xasec[isec + 1], sasec[isec + 1], xcp_arr[ivc])
-                    _, sv_r[k] = akima(xasec[isec + 1], sasec[isec + 1], xvr[ivc])
-            scl_l = (chord_l / chord_c) * (1.0 - fc)
-            scl_r = (chord_r / chord_c) * fc
-            state.slopec[i_arr] = scl_l * s_l + scl_r * s_r
-            state.slopev[i_arr] = scl_l * sv_l + scl_r * sv_r
+                    slope_cp_r[k], _ = akima(xasec[isec + 1], sasec[isec + 1], xcp_arr[ivc])
+                    _, slope_vr_r[k] = akima(xasec[isec + 1], sasec[isec + 1], xvr[ivc])
+            slope_weight_l = (chord_l / chord_c) * (1.0 - span_frac_cp)
+            slope_weight_r = (chord_r / chord_c) * span_frac_cp
+            state.slopec[i_arr] = slope_weight_l * slope_cp_l + slope_weight_r * slope_cp_r
+            state.slopev[i_arr] = slope_weight_l * slope_vr_l + slope_weight_r * slope_vr_r
 
             # CPOML aft-node coordinates at panel trailing edges (xpt[ivc+1]).
             xpt_nodes = xpt[ivc_idx + 1]
-            zl_l = np.zeros(nvc1, dtype=np.float64)
-            zu_l = np.zeros(nvc1, dtype=np.float64)
-            zl_r = np.zeros(nvc1, dtype=np.float64)
-            zu_r = np.zeros(nvc1, dtype=np.float64)
+            zl_l = np.zeros(n_chord, dtype=np.float64)
+            zu_l = np.zeros(n_chord, dtype=np.float64)
+            zl_r = np.zeros(n_chord, dtype=np.float64)
+            zu_r = np.zeros(n_chord, dtype=np.float64)
             if nasec[isec] > 1:
                 zlasec_l = casec[isec] - 0.5 * tasec[isec]
                 zuasec_l = casec[isec] + 0.5 * tasec[isec]

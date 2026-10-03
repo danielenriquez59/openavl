@@ -399,13 +399,13 @@ class AVLState:
         nstrip = 0
         nvor = 0
         for surf in model.surfaces:
-            nvc = surf.n_chord or 1
-            nvs = surf.n_span or 0
-            if nvs == 0:
-                nvs = sum(sec.n_span or 0 for sec in surf.sections[:-1])
+            n_chord = surf.n_chord or 1
+            n_span = surf.n_span or 0
+            if n_span == 0:
+                n_span = sum(sec.n_span or 0 for sec in surf.sections[:-1])
             copies = 2 if surf.yduplicate is not None else 1
-            nstrip += nvs * copies
-            nvor += nvs * nvc * copies
+            nstrip += n_span * copies
+            nvor += n_span * n_chord * copies
 
         nvmax = max(1, nvor)
         nstrmax = max(1, nstrip)
@@ -429,7 +429,7 @@ class AVLState:
             nlnode += n_nodes
         nlmax = max(1, nlnode)
 
-        opts = {
+        run_defaults = {
             "vel": 0.0,
             "rho": 1.225,
             "gravity": 9.81,
@@ -445,7 +445,7 @@ class AVLState:
             "ycg": None,
             "zcg": None,
         }
-        opts.update(options)
+        run_defaults.update(options)
 
         unitl = float(options.get("unitl", 1.0))
         if unitl <= 0:
@@ -486,26 +486,38 @@ class AVLState:
 
         ir = 0
         state.parval[C.IPMACH, ir] = state.mach
-        state.parval[C.IPVEE, ir]  = float(opts["vel"])
-        state.parval[C.IPRHO, ir]  = float(opts["rho"])
-        state.parval[C.IPGEE, ir]  = float(opts["gravity"])
-        state.parval[C.IPCL, ir]   = float(opts["cl"])
-        state.parval[C.IPPHI, ir]  = float(opts["bank"])
-        xcg = opts["xcg"] if opts["xcg"] is not None else model.header.xref
-        ycg = opts["ycg"] if opts["ycg"] is not None else model.header.yref
-        zcg = opts["zcg"] if opts["zcg"] is not None else model.header.zref
+        state.parval[C.IPVEE, ir]  = float(run_defaults["vel"])
+        state.parval[C.IPRHO, ir]  = float(run_defaults["rho"])
+        state.parval[C.IPGEE, ir]  = float(run_defaults["gravity"])
+        state.parval[C.IPCL, ir]   = float(run_defaults["cl"])
+        state.parval[C.IPPHI, ir]  = float(run_defaults["bank"])
+        xcg = (
+            run_defaults["xcg"]
+            if run_defaults["xcg"] is not None
+            else model.header.xref
+        )
+        ycg = (
+            run_defaults["ycg"]
+            if run_defaults["ycg"] is not None
+            else model.header.yref
+        )
+        zcg = (
+            run_defaults["zcg"]
+            if run_defaults["zcg"] is not None
+            else model.header.zref
+        )
         state.parval[C.IPXCG, ir] = float(xcg)
         state.parval[C.IPYCG, ir] = float(ycg)
         state.parval[C.IPZCG, ir] = float(zcg)
-        state.parval[C.IPCD0, ir] = float(opts["cd0"])
-        state.alfa = float(opts["alpha"]) * state.dtr
-        state.beta = float(opts["beta"]) * state.dtr
+        state.parval[C.IPCD0, ir] = float(run_defaults["cd0"])
+        state.alfa = float(run_defaults["alpha"]) * state.dtr
+        state.beta = float(run_defaults["beta"]) * state.dtr
 
-        state.conval[C.ICCL, ir]   = float(opts["cl"])
-        state.conval[C.ICMOMX, ir] = float(opts["cmx"])
-        state.conval[C.ICMOMY, ir] = float(opts["cmy"])
-        state.conval[C.ICMOMZ, ir] = float(opts["cmz"])
-        state.conval[C.ICBETA, ir] = float(opts["beta"])
+        state.conval[C.ICCL, ir]   = float(run_defaults["cl"])
+        state.conval[C.ICMOMX, ir] = float(run_defaults["cmx"])
+        state.conval[C.ICMOMY, ir] = float(run_defaults["cmy"])
+        state.conval[C.ICMOMZ, ir] = float(run_defaults["cmz"])
+        state.conval[C.ICBETA, ir] = float(run_defaults["beta"])
         state.conval[C.ICROTX, ir] = 0.0
         state.conval[C.ICROTY, ir] = 0.0
         state.conval[C.ICROTZ, ir] = 0.0
@@ -807,10 +819,12 @@ class AVLState:
 def build_vortex_to_strip(state: AVLState) -> np.ndarray:
     """Map each vortex index to its parent strip index (one-time geometry setup)."""
     nvor = state.nvor
-    v2s = np.zeros(max(1, nvor), dtype=np.int32)
-    for j in range(state.nstrip):
-        i1 = int(state.ijfrst[j])
-        nvc = int(state.nvstrp[j])
-        v2s[i1 : i1 + nvc] = j
-    state.vortex_to_strip = v2s[:nvor] if nvor > 0 else v2s[:0]
+    vortex_to_strip = np.zeros(max(1, nvor), dtype=np.int32)
+    for strip in range(state.nstrip):
+        vortex_start = int(state.ijfrst[strip])
+        n_chordwise = int(state.nvstrp[strip])
+        vortex_to_strip[vortex_start : vortex_start + n_chordwise] = strip
+    state.vortex_to_strip = (
+        vortex_to_strip[:nvor] if nvor > 0 else vortex_to_strip[:0]
+    )
     return state.vortex_to_strip

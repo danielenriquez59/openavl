@@ -240,137 +240,139 @@ def build_sysmat(state: AVLState, ir: int = 0) -> tuple[np.ndarray, np.ndarray, 
         h_u[k, 4] = rimat[k, 1] * rot
         h_u[k, 5] = rimat[k, 2] * rot
 
-    wxp = np.zeros(3, dtype=np.float64)
-    wxh = np.zeros(3, dtype=np.float64)
-    wxp_u = np.zeros((3, 6), dtype=np.float64)
-    wxh_u = np.zeros((3, 6), dtype=np.float64)
+    # Coriolis terms: omega x momentum / angular momentum
+    omega_cross_p = np.zeros(3, dtype=np.float64)
+    omega_cross_h = np.zeros(3, dtype=np.float64)
+    omega_cross_p_u = np.zeros((3, 6), dtype=np.float64)
+    omega_cross_h_u = np.zeros((3, 6), dtype=np.float64)
 
     for k in range(3):
         i = ICRS[k]
         j = JCRS[k]
-        wxp[k] = (state.wrot[i] * p[j] - state.wrot[j] * p[i]) * rot
-        wxh[k] = (state.wrot[i] * h[j] - state.wrot[j] * h[i]) * rot
+        omega_cross_p[k] = (state.wrot[i] * p[j] - state.wrot[j] * p[i]) * rot
+        omega_cross_h[k] = (state.wrot[i] * h[j] - state.wrot[j] * h[i]) * rot
         for iu in range(6):
-            wxp_u[k, iu] = (state.wrot[i] * p_u[j, iu] - state.wrot[j] * p_u[i, iu]) * rot
-            wxh_u[k, iu] = (state.wrot[i] * h_u[j, iu] - state.wrot[j] * h_u[i, iu]) * rot
-        wxp_u[k, i + 3] += p[j] * rot
-        wxp_u[k, j + 3] -= p[i] * rot
-        wxh_u[k, i + 3] += h[j] * rot
-        wxh_u[k, j + 3] -= h[i] * rot
+            omega_cross_p_u[k, iu] = (state.wrot[i] * p_u[j, iu] - state.wrot[j] * p_u[i, iu]) * rot
+            omega_cross_h_u[k, iu] = (state.wrot[i] * h_u[j, iu] - state.wrot[j] * h_u[i, iu]) * rot
+        omega_cross_p_u[k, i + 3] += p[j] * rot
+        omega_cross_p_u[k, j + 3] -= p[i] * rot
+        omega_cross_h_u[k, i + 3] += h[j] * rot
+        omega_cross_h_u[k, j + 3] -= h[i] * rot
 
-    mif = np.zeros(3, dtype=np.float64)
-    rim = np.zeros(3, dtype=np.float64)
-    prf = np.zeros(3, dtype=np.float64)
-    prm = np.zeros(3, dtype=np.float64)
-    mif_u = np.zeros((3, 6), dtype=np.float64)
-    rim_u = np.zeros((3, 6), dtype=np.float64)
-    prf_u = np.zeros((3, 6), dtype=np.float64)
-    prm_u = np.zeros((3, 6), dtype=np.float64)
-    mif_d = np.zeros((3, state.ncontrol), dtype=np.float64)
-    rim_d = np.zeros((3, state.ncontrol), dtype=np.float64)
+    # Projected accelerations from aero loads and Coriolis terms
+    accel_from_aero = np.zeros(3, dtype=np.float64)
+    ang_accel_from_aero = np.zeros(3, dtype=np.float64)
+    accel_from_wxp = np.zeros(3, dtype=np.float64)
+    ang_accel_from_wxh = np.zeros(3, dtype=np.float64)
+    accel_from_aero_u = np.zeros((3, 6), dtype=np.float64)
+    ang_accel_from_aero_u = np.zeros((3, 6), dtype=np.float64)
+    accel_from_wxp_u = np.zeros((3, 6), dtype=np.float64)
+    ang_accel_from_wxh_u = np.zeros((3, 6), dtype=np.float64)
+    accel_from_aero_d = np.zeros((3, state.ncontrol), dtype=np.float64)
+    ang_accel_from_aero_d = np.zeros((3, state.ncontrol), dtype=np.float64)
 
     for k in range(3):
-        mif[k] = mainv[k, 0] * state.cftot[0] * qs + mainv[k, 1] * state.cftot[1] * qs + mainv[k, 2] * state.cftot[2] * qs
-        rim[k] = (
+        accel_from_aero[k] = mainv[k, 0] * state.cftot[0] * qs + mainv[k, 1] * state.cftot[1] * qs + mainv[k, 2] * state.cftot[2] * qs
+        ang_accel_from_aero[k] = (
             riinv[k, 0] * state.cmtot[0] * qs * bref_d
             + riinv[k, 1] * state.cmtot[1] * qs * cref_d
             + riinv[k, 2] * state.cmtot[2] * qs * bref_d
         )
-        prf[k] = mainv[k, 0] * wxp[0] + mainv[k, 1] * wxp[1] + mainv[k, 2] * wxp[2]
-        prm[k] = riinv[k, 0] * wxh[0] + riinv[k, 1] * wxh[1] + riinv[k, 2] * wxh[2]
+        accel_from_wxp[k] = mainv[k, 0] * omega_cross_p[0] + mainv[k, 1] * omega_cross_p[1] + mainv[k, 2] * omega_cross_p[2]
+        ang_accel_from_wxh[k] = riinv[k, 0] * omega_cross_h[0] + riinv[k, 1] * omega_cross_h[1] + riinv[k, 2] * omega_cross_h[2]
 
         for iu in range(6):
-            mif_u[k, iu] = (
+            accel_from_aero_u[k, iu] = (
                 mainv[k, 0] * state.cftot_u[0, iu] * qs
                 + mainv[k, 1] * state.cftot_u[1, iu] * qs
                 + mainv[k, 2] * state.cftot_u[2, iu] * qs
             )
-            rim_u[k, iu] = (
+            ang_accel_from_aero_u[k, iu] = (
                 riinv[k, 0] * state.cmtot_u[0, iu] * qs * bref_d
                 + riinv[k, 1] * state.cmtot_u[1, iu] * qs * cref_d
                 + riinv[k, 2] * state.cmtot_u[2, iu] * qs * bref_d
             )
-            prf_u[k, iu] = mainv[k, 0] * wxp_u[0, iu] + mainv[k, 1] * wxp_u[1, iu] + mainv[k, 2] * wxp_u[2, iu]
-            prm_u[k, iu] = riinv[k, 0] * wxh_u[0, iu] + riinv[k, 1] * wxh_u[1, iu] + riinv[k, 2] * wxh_u[2, iu]
+            accel_from_wxp_u[k, iu] = mainv[k, 0] * omega_cross_p_u[0, iu] + mainv[k, 1] * omega_cross_p_u[1, iu] + mainv[k, 2] * omega_cross_p_u[2, iu]
+            ang_accel_from_wxh_u[k, iu] = riinv[k, 0] * omega_cross_h_u[0, iu] + riinv[k, 1] * omega_cross_h_u[1, iu] + riinv[k, 2] * omega_cross_h_u[2, iu]
 
         for n in range(state.ncontrol):
-            mif_d[k, n] = (
+            accel_from_aero_d[k, n] = (
                 mainv[k, 0] * state.cftot_d[0, n] * qs
                 + mainv[k, 1] * state.cftot_d[1, n] * qs
                 + mainv[k, 2] * state.cftot_d[2, n] * qs
             )
-            rim_d[k, n] = (
+            ang_accel_from_aero_d[k, n] = (
                 riinv[k, 0] * state.cmtot_d[0, n] * qs * bref_d
                 + riinv[k, 1] * state.cmtot_d[1, n] * qs * cref_d
                 + riinv[k, 2] * state.cmtot_d[2, n] * qs * bref_d
             )
 
-        mif_u[k, 0] -= mainv[k, 2] * dcl_u * qs
-        rim_u[k, 0] -= riinv[k, 1] * dcm_u * qs * cref_d
-        mif_u[k, 2] += mainv[k, 2] * dcl_a * qs
-        rim_u[k, 2] += riinv[k, 1] * dcm_a * qs * cref_d
+        accel_from_aero_u[k, 0] -= mainv[k, 2] * dcl_u * qs
+        ang_accel_from_aero_u[k, 0] -= riinv[k, 1] * dcm_u * qs * cref_d
+        accel_from_aero_u[k, 2] += mainv[k, 2] * dcl_a * qs
+        ang_accel_from_aero_u[k, 2] += riinv[k, 1] * dcm_a * qs * cref_d
 
     ang = np.array([phi * state.dtr, the * state.dtr, psi * state.dtr], dtype=np.float64)
-    tt, tt_ang = rotens3(ang)
-    rt, rt_ang = rateki3(ang)
+    dcm_body_to_earth, dcm_body_to_earth_ang = rotens3(ang)
+    rate_kin_mat, rate_kin_mat_ang = rateki3(ang)
 
     asys = np.zeros((NSYS, NSYS), dtype=np.float64)
     bsys = np.zeros((NSYS, max(1, state.ncontrol)), dtype=np.float64)
     rsys = np.zeros(NSYS, dtype=np.float64)
 
     def set_force_row(ieq: int, k: int) -> None:
-        rsys[ieq] = mif[k] - prf[k] - gee * tt[2, k]
-        asys[ieq, C.JEU] = -(mif_u[k, 0] - prf_u[k, 0]) / vee
-        asys[ieq, C.JEV] = -(mif_u[k, 1] - prf_u[k, 1]) / vee
-        asys[ieq, C.JEW] = -(mif_u[k, 2] - prf_u[k, 2]) / vee
-        asys[ieq, C.JEP] = (mif_u[k, 3] - prf_u[k, 3]) / rot
-        asys[ieq, C.JEQ] = (mif_u[k, 4] - prf_u[k, 4]) / rot
-        asys[ieq, C.JER] = (mif_u[k, 5] - prf_u[k, 5]) / rot
-        asys[ieq, C.JEPH] = -gee * tt_ang[2, k, 0]
-        asys[ieq, C.JETH] = -gee * tt_ang[2, k, 1]
-        asys[ieq, C.JEPS] = -gee * tt_ang[2, k, 2]
+        rsys[ieq] = accel_from_aero[k] - accel_from_wxp[k] - gee * dcm_body_to_earth[2, k]
+        asys[ieq, C.JEU] = -(accel_from_aero_u[k, 0] - accel_from_wxp_u[k, 0]) / vee
+        asys[ieq, C.JEV] = -(accel_from_aero_u[k, 1] - accel_from_wxp_u[k, 1]) / vee
+        asys[ieq, C.JEW] = -(accel_from_aero_u[k, 2] - accel_from_wxp_u[k, 2]) / vee
+        asys[ieq, C.JEP] = (accel_from_aero_u[k, 3] - accel_from_wxp_u[k, 3]) / rot
+        asys[ieq, C.JEQ] = (accel_from_aero_u[k, 4] - accel_from_wxp_u[k, 4]) / rot
+        asys[ieq, C.JER] = (accel_from_aero_u[k, 5] - accel_from_wxp_u[k, 5]) / rot
+        asys[ieq, C.JEPH] = -gee * dcm_body_to_earth_ang[2, k, 0]
+        asys[ieq, C.JETH] = -gee * dcm_body_to_earth_ang[2, k, 1]
+        asys[ieq, C.JEPS] = -gee * dcm_body_to_earth_ang[2, k, 2]
         for n in range(state.ncontrol):
-            bsys[ieq, n] = mif_d[k, n]
+            bsys[ieq, n] = accel_from_aero_d[k, n]
 
     def set_moment_row(ieq: int, k: int) -> None:
-        rsys[ieq] = rim[k] - prm[k]
-        asys[ieq, C.JEU] = -(rim_u[k, 0] - prm_u[k, 0]) / vee
-        asys[ieq, C.JEV] = -(rim_u[k, 1] - prm_u[k, 1]) / vee
-        asys[ieq, C.JEW] = -(rim_u[k, 2] - prm_u[k, 2]) / vee
-        asys[ieq, C.JEP] = (rim_u[k, 3] - prm_u[k, 3]) / rot
-        asys[ieq, C.JEQ] = (rim_u[k, 4] - prm_u[k, 4]) / rot
-        asys[ieq, C.JER] = (rim_u[k, 5] - prm_u[k, 5]) / rot
+        rsys[ieq] = ang_accel_from_aero[k] - ang_accel_from_wxh[k]
+        asys[ieq, C.JEU] = -(ang_accel_from_aero_u[k, 0] - ang_accel_from_wxh_u[k, 0]) / vee
+        asys[ieq, C.JEV] = -(ang_accel_from_aero_u[k, 1] - ang_accel_from_wxh_u[k, 1]) / vee
+        asys[ieq, C.JEW] = -(ang_accel_from_aero_u[k, 2] - ang_accel_from_wxh_u[k, 2]) / vee
+        asys[ieq, C.JEP] = (ang_accel_from_aero_u[k, 3] - ang_accel_from_wxh_u[k, 3]) / rot
+        asys[ieq, C.JEQ] = (ang_accel_from_aero_u[k, 4] - ang_accel_from_wxh_u[k, 4]) / rot
+        asys[ieq, C.JER] = (ang_accel_from_aero_u[k, 5] - ang_accel_from_wxh_u[k, 5]) / rot
         for n in range(state.ncontrol):
-            bsys[ieq, n] = rim_d[k, n]
+            bsys[ieq, n] = ang_accel_from_aero_d[k, n]
 
     def set_angle_row(ieq: int, k: int) -> None:
-        rsys[ieq] = rot * (rt[k, 0] * state.wrot[0] + rt[k, 1] * state.wrot[1] + rt[k, 2] * state.wrot[2])
-        asys[ieq, C.JEP] = rt[k, 0]
-        asys[ieq, C.JEQ] = rt[k, 1]
-        asys[ieq, C.JER] = rt[k, 2]
+        rsys[ieq] = rot * (rate_kin_mat[k, 0] * state.wrot[0] + rate_kin_mat[k, 1] * state.wrot[1] + rate_kin_mat[k, 2] * state.wrot[2])
+        asys[ieq, C.JEP] = rate_kin_mat[k, 0]
+        asys[ieq, C.JEQ] = rate_kin_mat[k, 1]
+        asys[ieq, C.JER] = rate_kin_mat[k, 2]
         asys[ieq, C.JEPH] = rot * (
-            rt_ang[k, 0, 0] * state.wrot[0] + rt_ang[k, 1, 0] * state.wrot[1] + rt_ang[k, 2, 0] * state.wrot[2]
+            rate_kin_mat_ang[k, 0, 0] * state.wrot[0] + rate_kin_mat_ang[k, 1, 0] * state.wrot[1] + rate_kin_mat_ang[k, 2, 0] * state.wrot[2]
         )
         asys[ieq, C.JETH] = rot * (
-            rt_ang[k, 0, 1] * state.wrot[0] + rt_ang[k, 1, 1] * state.wrot[1] + rt_ang[k, 2, 1] * state.wrot[2]
+            rate_kin_mat_ang[k, 0, 1] * state.wrot[0] + rate_kin_mat_ang[k, 1, 1] * state.wrot[1] + rate_kin_mat_ang[k, 2, 1] * state.wrot[2]
         )
         asys[ieq, C.JEPS] = rot * (
-            rt_ang[k, 0, 2] * state.wrot[0] + rt_ang[k, 1, 2] * state.wrot[1] + rt_ang[k, 2, 2] * state.wrot[2]
+            rate_kin_mat_ang[k, 0, 2] * state.wrot[0] + rate_kin_mat_ang[k, 1, 2] * state.wrot[1] + rate_kin_mat_ang[k, 2, 2] * state.wrot[2]
         )
 
     def set_position_row(ieq: int, k: int) -> None:
-        rsys[ieq] = -(tt[k, 0] * state.vinf[0] + tt[k, 1] * state.vinf[1] + tt[k, 2] * state.vinf[2]) * vee
-        asys[ieq, C.JEU] = tt[k, 0]
-        asys[ieq, C.JEV] = tt[k, 1]
-        asys[ieq, C.JEW] = tt[k, 2]
+        rsys[ieq] = -(dcm_body_to_earth[k, 0] * state.vinf[0] + dcm_body_to_earth[k, 1] * state.vinf[1] + dcm_body_to_earth[k, 2] * state.vinf[2]) * vee
+        asys[ieq, C.JEU] = dcm_body_to_earth[k, 0]
+        asys[ieq, C.JEV] = dcm_body_to_earth[k, 1]
+        asys[ieq, C.JEW] = dcm_body_to_earth[k, 2]
         asys[ieq, C.JEPH] = -(
-            tt_ang[k, 0, 0] * state.vinf[0] + tt_ang[k, 1, 0] * state.vinf[1] + tt_ang[k, 2, 0] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 0] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 0] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 0] * state.vinf[2]
         ) * vee
         asys[ieq, C.JETH] = -(
-            tt_ang[k, 0, 1] * state.vinf[0] + tt_ang[k, 1, 1] * state.vinf[1] + tt_ang[k, 2, 1] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 1] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 1] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 1] * state.vinf[2]
         ) * vee
         asys[ieq, C.JEPS] = -(
-            tt_ang[k, 0, 2] * state.vinf[0] + tt_ang[k, 1, 2] * state.vinf[1] + tt_ang[k, 2, 2] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 2] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 2] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 2] * state.vinf[2]
         ) * vee
 
     set_force_row(C.JEU, 0)
@@ -416,8 +418,8 @@ def build_appmat(state: AVLState, ir: int = 0) -> tuple[np.ndarray, np.ndarray, 
     qsb = qs * bref_d
 
     ang = np.array([phi * state.dtr, the * state.dtr, psi * state.dtr], dtype=np.float64)
-    tt, tt_ang = rotens3(ang)
-    rt, rt_ang = rateki3(ang)
+    dcm_body_to_earth, dcm_body_to_earth_ang = rotens3(ang)
+    rate_kin_mat, rate_kin_mat_ang = rateki3(ang)
 
     asys = np.zeros((NSYS, NSYS), dtype=np.float64)
     bsys = np.zeros((NSYS, max(1, state.ncontrol)), dtype=np.float64)
@@ -466,33 +468,33 @@ def build_appmat(state: AVLState, ir: int = 0) -> tuple[np.ndarray, np.ndarray, 
     asys[C.JEPH, C.JEP] = -1.0
 
     k = 2
-    rsys[C.JEPS] = rot * (rt[k, 0] * state.wrot[0] + rt[k, 1] * state.wrot[1] + rt[k, 2] * state.wrot[2])
-    asys[C.JEPS, C.JEP] = rt[k, 0]
-    asys[C.JEPS, C.JEQ] = rt[k, 1]
-    asys[C.JEPS, C.JER] = rt[k, 2]
+    rsys[C.JEPS] = rot * (rate_kin_mat[k, 0] * state.wrot[0] + rate_kin_mat[k, 1] * state.wrot[1] + rate_kin_mat[k, 2] * state.wrot[2])
+    asys[C.JEPS, C.JEP] = rate_kin_mat[k, 0]
+    asys[C.JEPS, C.JEQ] = rate_kin_mat[k, 1]
+    asys[C.JEPS, C.JER] = rate_kin_mat[k, 2]
     asys[C.JEPS, C.JEPH] = rot * (
-        rt_ang[k, 0, 0] * state.wrot[0] + rt_ang[k, 1, 0] * state.wrot[1] + rt_ang[k, 2, 0] * state.wrot[2]
+        rate_kin_mat_ang[k, 0, 0] * state.wrot[0] + rate_kin_mat_ang[k, 1, 0] * state.wrot[1] + rate_kin_mat_ang[k, 2, 0] * state.wrot[2]
     )
     asys[C.JEPS, C.JETH] = rot * (
-        rt_ang[k, 0, 1] * state.wrot[0] + rt_ang[k, 1, 1] * state.wrot[1] + rt_ang[k, 2, 1] * state.wrot[2]
+        rate_kin_mat_ang[k, 0, 1] * state.wrot[0] + rate_kin_mat_ang[k, 1, 1] * state.wrot[1] + rate_kin_mat_ang[k, 2, 1] * state.wrot[2]
     )
     asys[C.JEPS, C.JEPS] = rot * (
-        rt_ang[k, 0, 2] * state.wrot[0] + rt_ang[k, 1, 2] * state.wrot[1] + rt_ang[k, 2, 2] * state.wrot[2]
+        rate_kin_mat_ang[k, 0, 2] * state.wrot[0] + rate_kin_mat_ang[k, 1, 2] * state.wrot[1] + rate_kin_mat_ang[k, 2, 2] * state.wrot[2]
     )
 
     for ieq, k in ((C.JEX, 0), (C.JEY, 1), (C.JEZ, 2)):
-        rsys[ieq] = -(tt[k, 0] * state.vinf[0] + tt[k, 1] * state.vinf[1] + tt[k, 2] * state.vinf[2]) * vee
-        asys[ieq, C.JEU] = tt[k, 0]
-        asys[ieq, C.JEV] = tt[k, 1]
-        asys[ieq, C.JEW] = tt[k, 2]
+        rsys[ieq] = -(dcm_body_to_earth[k, 0] * state.vinf[0] + dcm_body_to_earth[k, 1] * state.vinf[1] + dcm_body_to_earth[k, 2] * state.vinf[2]) * vee
+        asys[ieq, C.JEU] = dcm_body_to_earth[k, 0]
+        asys[ieq, C.JEV] = dcm_body_to_earth[k, 1]
+        asys[ieq, C.JEW] = dcm_body_to_earth[k, 2]
         asys[ieq, C.JEPH] = -(
-            tt_ang[k, 0, 0] * state.vinf[0] + tt_ang[k, 1, 0] * state.vinf[1] + tt_ang[k, 2, 0] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 0] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 0] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 0] * state.vinf[2]
         ) * vee
         asys[ieq, C.JETH] = -(
-            tt_ang[k, 0, 1] * state.vinf[0] + tt_ang[k, 1, 1] * state.vinf[1] + tt_ang[k, 2, 1] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 1] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 1] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 1] * state.vinf[2]
         ) * vee
         asys[ieq, C.JEPS] = -(
-            tt_ang[k, 0, 2] * state.vinf[0] + tt_ang[k, 1, 2] * state.vinf[1] + tt_ang[k, 2, 2] * state.vinf[2]
+            dcm_body_to_earth_ang[k, 0, 2] * state.vinf[0] + dcm_body_to_earth_ang[k, 1, 2] * state.vinf[1] + dcm_body_to_earth_ang[k, 2, 2] * state.vinf[2]
         ) * vee
 
     return asys, bsys, rsys

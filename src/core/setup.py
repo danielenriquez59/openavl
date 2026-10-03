@@ -4,27 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from openavl.aero.aic import cross, dot, srdset, vsrd, vvor, _vvor_vortex_pre
+from openavl.aero.aic import srdset, vsrd, vvor, _vvor_vortex_pre
 from openavl.core.state import AVLState
 from openavl.math.linalg import baksub, ludcmp
-
-
-def u_comp(state: AVLState, iu: int) -> float:
-    """Return the iu-th unit velocity component (0-based iu in 0..5)."""
-    if iu < 3:
-        return float(state.vinf[iu])
-    return float(state.wrot[iu - 3])
 
 
 def _unit_velocity(state: AVLState) -> np.ndarray:
     """Return the active unit-velocity vector [vinf, wrot] of length numax."""
     # Shared by gamsum/velsum so body-source weighting uses one u vector.
     return np.concatenate((state.vinf, state.wrot))[: state.numax]
-
-
-def _solve_aic_column(state: AVLState, col: np.ndarray) -> None:
-    """Solve AICN * x = col using pre-factored LU (in-place on col[:nvor])."""
-    baksub(state.aicn, state.nvor, state.iapiv, col[: state.nvor])
 
 
 def _solve_aic_columns(state: AVLState, cols: np.ndarray) -> None:

@@ -46,7 +46,7 @@ def _cdcl_as_list(cdcl: CdclPolar | None) -> list[float] | None:
 
 def _section_to_def(section, wing_cdcl: CdclPolar | None) -> SectionDef:
     """Build a SectionDef from a geometry Section."""
-    sec_def = SectionDef(
+    section_def = SectionDef(
         xle=section.xle,
         yle=section.yle,
         zle=section.zle,
@@ -65,24 +65,26 @@ def _section_to_def(section, wing_cdcl: CdclPolar | None) -> SectionDef:
 
     if section.airfoil is not None:
         if section.airfoil.af_type == AirfoilType.NACA:
-            sec_def.naca = section.airfoil.naca
+            section_def.naca = section.airfoil.naca
         elif section.airfoil.af_type == AirfoilType.FILE:
-            sec_def.airfoil_file = section.airfoil.file_path
+            section_def.airfoil_file = section.airfoil.file_path
         elif section.airfoil.af_type == AirfoilType.COORDS:
-            sec_def.airfoil_coords = [list(pt) for pt in (section.airfoil.coords or [])]
+            section_def.airfoil_coords = [
+                list(pt) for pt in (section.airfoil.coords or [])
+            ]
 
-    for ctrl in section.controls:
-        sec_def.controls.append(
+    for control in section.controls:
+        section_def.controls.append(
             ControlDef(
-                name=ctrl.name,
-                gain=ctrl.gain,
-                xhinge=ctrl.xhinge,
-                vhinge=list(ctrl.vhinge),
-                sgn_dup=ctrl.sgn_dup,
+                name=control.name,
+                gain=control.gain,
+                xhinge=control.xhinge,
+                vhinge=list(control.vhinge),
+                sgn_dup=control.sgn_dup,
             )
         )
 
-    return sec_def
+    return section_def
 
 
 def to_avl_model(aircraft: Aircraft, base_dir: str | Path | None = None) -> AVLModel:
@@ -129,10 +131,10 @@ def to_avl_model(aircraft: Aircraft, base_dir: str | Path | None = None) -> AVLM
         )
         surf.clmax = wing.clmax
         for section in wing.sections:
-            sec_def = _section_to_def(section, wing.cdcl)
-            if sec_def.airfoil_file:
-                airfoil_files.append(sec_def.airfoil_file)
-            surf.sections.append(sec_def)
+            section_def = _section_to_def(section, wing.cdcl)
+            if section_def.airfoil_file:
+                airfoil_files.append(section_def.airfoil_file)
+            surf.sections.append(section_def)
         surfaces.append(surf)
 
     bodies: list[BodyDef] = []

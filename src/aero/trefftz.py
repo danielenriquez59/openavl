@@ -68,27 +68,6 @@ def pgmat(
     p_b[2, :] = 0.0
 
 
-def vinfab(state: Any) -> Any:
-    """Set freestream velocity and its angle derivatives (VINFAB)."""
-    sina = (np.sin((state.alfa)))
-    cosa = (np.cos((state.alfa)))
-    sinb = (np.sin((state.beta)))
-    cosb = (np.cos((state.beta)))
-
-    state.vinf[0] = (cosa * cosb)
-    state.vinf[1] = (-sinb)
-    state.vinf[2] = (sina * cosb)
-
-    state.vinf_a[0] = (-sina * cosb)
-    state.vinf_a[1] = 0.0
-    state.vinf_a[2] = (cosa * cosb)
-
-    state.vinf_b[0] = (-cosa * sinb)
-    state.vinf_b[1] = (-cosb)
-    state.vinf_b[2] = (-sina * sinb)
-    return state
-
-
 def _sum_strip_circulations(
     nstrip: int,
     ijfrst: np.ndarray,
