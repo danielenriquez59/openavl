@@ -772,6 +772,53 @@ def makebody(state, ibody: int, body: BodyDef, node_cursor: int) -> int:
     return node_cursor + n_body
 
 
+def bdupl(state, ibody: int, ydupl: float, node_cursor: int) -> int:
+    """Add image of body ``ibody`` reflected about y = ``ydupl`` (BDUPL).
+
+    The image occupies body slot ``ibody + 1`` and starts at ``node_cursor``.
+    Returns the updated node cursor. Fortran BDUPL loops to NVB+1 and so
+    advances NLNODE by one extra unused node; that slot is never read by any
+    per-body loop, so it is not reproduced here.
+    """
+    nni = ibody + 1
+    nvb = int(state.nl[ibody])
+    if nni >= state.lfrst.size:
+        raise RuntimeError(
+            f"BDUPL: body array overflow for image of body {ibody}: "
+            f"slot {nni} exceeds body limit {state.lfrst.size}"
+        )
+    if node_cursor + nvb > state.nlmax:
+        raise RuntimeError(
+            f"BDUPL: node array overflow for image of body {ibody}: "
+            f"needs {node_cursor + nvb} nodes, limit {state.nlmax}"
+        )
+
+    state.lfrst[nni] = node_cursor
+    state.nl[nni] = nvb
+
+    yoff = 2.0 * ydupl
+    ll = int(state.lfrst[ibody])
+    lli = node_cursor
+    state.rl[0, lli:lli + nvb] = state.rl[0, ll:ll + nvb]
+    state.rl[1, lli:lli + nvb] = -state.rl[1, ll:ll + nvb] + yoff
+    state.rl[2, lli:lli + nvb] = state.rl[2, ll:ll + nvb]
+    state.radl[lli:lli + nvb] = state.radl[ll:ll + nvb]
+
+    return node_cursor + nvb
+
+
+def _check_body_duplication(body: BodyDef) -> None:
+    """Reject YDUPLICATE of a body on the symmetry plane (ainput.f BODY/END)."""
+    if body.yduplicate is None:
+        return
+    ty = float(body.translate[1]) if body.translate and len(body.translate) > 1 else 0.0
+    if float(body.yduplicate) == 0.0 and ty == 0.0:
+        raise ValueError(
+            f"Cannot duplicate body on symmetry plane: body '{body.name}' has "
+            "YDUPLICATE 0.0 and TRANSLATE y = 0.0"
+        )
+
+
 def solver_surface_index(model, isurf: int) -> int:
     """Map a solver surface index to ``model.surfaces`` index.
 
@@ -831,8 +878,13 @@ def build_geometry(state, model) -> None:
             continue
         if body_count >= state.lfrst.size:
             break
+        _check_body_duplication(body)
         node_cursor = makebody(state, body_count, body, node_cursor)
         body_count += 1
+        if body.yduplicate is not None:
+            # Optional YDUPLICATE: reflect body about specified y plane.
+            node_cursor = bdupl(state, body_count - 1, float(body.yduplicate), node_cursor)
+            body_count += 1
     state.nbody = body_count
     state.nlnode = node_cursor
 

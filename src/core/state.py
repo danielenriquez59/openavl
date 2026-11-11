@@ -425,8 +425,9 @@ class AVLState:
                 or len(body.body_thread_t) < 2
             ):
                 continue
-            nbody += 1
-            nlnode += n_nodes
+            copies = 2 if body.yduplicate is not None else 1
+            nbody += copies
+            nlnode += n_nodes * copies
         nlmax = max(1, nlnode)
 
         run_defaults = {
