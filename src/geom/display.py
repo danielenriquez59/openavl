@@ -119,7 +119,7 @@ def control_hinge_polylines(
         if surface.yduplicate is not None:
             for surface_name, control_name, points in surface_runs:
                 mirrored = [
-                    (x, -y + surface.yduplicate, z)
+                    (x, 2.0 * surface.yduplicate - y, z)
                     for x, y, z in points
                 ]
                 polylines.append((surface_name, control_name, mirrored))
