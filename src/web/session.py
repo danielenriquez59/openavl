@@ -11,7 +11,7 @@ import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any
 
 import numpy as np
@@ -135,6 +135,37 @@ def list_body_dependencies(
     return _list_normalized_paths(avl_entries, extra_paths)
 
 
+def _dep_path_escapes(dep: str) -> bool:
+    """Return ``True`` when a dependency path is absolute or climbs out with ``..``.
+
+    Both POSIX and Windows spellings are checked so drive letters, UNC shares,
+    and backslash-separated ``..`` segments are rejected on every platform.
+    """
+    for pure in (PurePosixPath(dep), PureWindowsPath(dep)):
+        if pure.anchor or ".." in pure.parts:
+            return True
+    return False
+
+
+def _contained_dep_path(root: Path, dep: str) -> Path | None:
+    """Return ``root / dep`` resolved, or ``None`` if it would land outside ``root``."""
+    if _dep_path_escapes(dep):
+        return None
+    base = root.resolve()
+    candidate = (base / dep).resolve()
+    if not candidate.is_relative_to(base):
+        return None
+    return candidate
+
+
+def _reject_unsafe_dep_path(norm: str, kind: str) -> None:
+    """Raise ``ValueError`` for a client-supplied dependency path that escapes its directory."""
+    if _dep_path_escapes(norm):
+        raise ValueError(
+            f"{kind} path '{norm}' is not allowed: it must be a relative path inside the model directory."
+        )
+
+
 def _dep_source_path(
     session: SessionState,
     path: str,
@@ -145,8 +176,8 @@ def _dep_source_path(
     if path in uploaded:
         return None
     if session.airfoil_base_dir is not None:
-        candidate = session.airfoil_base_dir / Path(path)
-        if candidate.is_file():
+        candidate = _contained_dep_path(session.airfoil_base_dir, path)
+        if candidate is not None and candidate.is_file():
             return candidate
     return None
 
@@ -184,7 +215,7 @@ def build_afil_dependencies(session: SessionState) -> list[dict[str, Any]]:
     avl_paths = set(list_airfoil_dependencies(session.pending_avl_text))
     rows: list[dict[str, Any]] = []
     for path in list_airfoil_dependencies(session.pending_avl_text, session.extra_airfoil_paths):
-        if path in session.invalid_airfoil_paths:
+        if path in session.invalid_airfoil_paths or _dep_path_escapes(path):
             status = "invalid"
         elif _airfoil_is_ready(session, path):
             status = "ready"
@@ -206,7 +237,7 @@ def build_bfil_dependencies(session: SessionState) -> list[dict[str, Any]]:
     avl_paths = set(list_body_dependencies(session.pending_avl_text))
     rows: list[dict[str, Any]] = []
     for path in list_body_dependencies(session.pending_avl_text, session.extra_body_paths):
-        if path in session.invalid_body_paths:
+        if path in session.invalid_body_paths or _dep_path_escapes(path):
             status = "invalid"
         elif _body_is_ready(session, path):
             status = "ready"
@@ -243,7 +274,9 @@ def _write_dep_to_work_dir(
     source: Path | None,
 ) -> None:
     """Write one dependency file into the materialization work directory."""
-    dest = root / Path(dep)
+    dest = _contained_dep_path(root, dep)
+    if dest is None:
+        return
     if dep in uploaded:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(uploaded[dep], encoding="utf-8", errors="replace")
@@ -872,6 +905,17 @@ def _solver_from_example(name: str) -> AVLSolver:
     )
 
 
+def _drop_unsafe_dep_references(model: AVLModel) -> None:
+    """Clear AFIL/BFIL references that escape the work directory so they are never read."""
+    for surf in model.surfaces:
+        for sec in surf.sections:
+            if sec.airfoil_file and _dep_path_escapes(normalize_airfoil_path(sec.airfoil_file)):
+                sec.airfoil_file = None
+    for body in model.bodies:
+        if body.body_file and _dep_path_escapes(normalize_airfoil_path(body.body_file)):
+            body.body_file = None
+
+
 def _solver_from_text(
     session: SessionState,
     avl_text: str,
@@ -881,7 +925,9 @@ def _solver_from_text(
 ) -> AVLSolver:
     """Create a solver from uploaded AVL (and optional mass) file text."""
     work_dir = _materialize_airfoil_work_dir(session, avl_text)
-    model = prepare_model(parse_avl(avl_text), base_dir=work_dir)
+    model = parse_avl(avl_text)
+    _drop_unsafe_dep_references(model)
+    model = prepare_model(model, base_dir=work_dir)
     mass_props: MassProperties | None = None
     if mass_text:
         mass_props = parse_mass_text(mass_text)
@@ -889,6 +935,15 @@ def _solver_from_text(
             raise ValueError("Mass file text could not be parsed.")
 
     if warnings is not None:
+        rejected = [
+            row["path"] for row in build_file_dependencies(session) if _dep_path_escapes(row["path"])
+        ]
+        if rejected:
+            joined = ", ".join(rejected[:5])
+            suffix = f" (+{len(rejected) - 5} more)" if len(rejected) > 5 else ""
+            warnings.append(
+                f"Ignored AFIL/BFIL paths outside the model directory: {joined}{suffix}"
+            )
         _append_missing_afil_warnings(session, warnings)
         _append_missing_bfil_warnings(session, warnings)
 
@@ -945,6 +1000,7 @@ def upload_airfoil(session: SessionState, path: str, text: str) -> dict[str, Any
     norm = normalize_airfoil_path(path)
     if not norm:
         raise ValueError("Airfoil path is empty.")
+    _reject_unsafe_dep_path(norm, "Airfoil")
     if not _airfoil_text_valid(text):
         session.invalid_airfoil_paths.add(norm)
         session.airfoil_files.pop(norm, None)
@@ -965,6 +1021,7 @@ def add_airfoil_dependency(session: SessionState, path: str) -> dict[str, Any]:
     norm = normalize_airfoil_path(path)
     if not norm:
         raise ValueError("Airfoil path is empty.")
+    _reject_unsafe_dep_path(norm, "Airfoil")
     if norm not in session.extra_airfoil_paths:
         session.extra_airfoil_paths.append(norm)
     if session.pending_avl_text:
@@ -980,6 +1037,7 @@ def upload_body(session: SessionState, path: str, text: str) -> dict[str, Any]:
     norm = normalize_airfoil_path(path)
     if not norm:
         raise ValueError("Body path is empty.")
+    _reject_unsafe_dep_path(norm, "Body")
     if not _body_text_valid(text):
         session.invalid_body_paths.add(norm)
         session.body_files.pop(norm, None)
@@ -1000,6 +1058,7 @@ def add_body_dependency(session: SessionState, path: str) -> dict[str, Any]:
     norm = normalize_airfoil_path(path)
     if not norm:
         raise ValueError("Body path is empty.")
+    _reject_unsafe_dep_path(norm, "Body")
     if norm not in session.extra_body_paths:
         session.extra_body_paths.append(norm)
     if session.pending_avl_text:
