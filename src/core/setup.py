@@ -33,8 +33,25 @@ def _mungea(state: AVLState) -> None:
             state.aicn[ii, ii] = 1.0
 
 
+def check_mach(mach: float) -> float:
+    """Return ``mach`` as a float, or raise if the solver cannot use it.
+
+    The Prandtl-Glauert factor sqrt(1 - M^2) is only real for M < 1. AVL
+    itself does not check, and the Python port used to fail later with a NaN
+    and a ZeroDivisionError inside the AIC kernel.
+    """
+    value = float(mach)
+    if not np.isfinite(value) or value < 0.0 or value >= 1.0:
+        raise ValueError(
+            f"Mach number must satisfy 0 <= M < 1 (Prandtl-Glauert compressibility "
+            f"correction is subsonic only); got {mach!r}."
+        )
+    return value
+
+
 def setup(state: AVLState) -> AVLState:
     """Build AIC matrix, body influence matrices, and velocity kernels."""
+    check_mach(state.mach)
     state.amach = state.mach
     state.betm = (np.sqrt((1.0 - (state.amach * state.amach))))
 
