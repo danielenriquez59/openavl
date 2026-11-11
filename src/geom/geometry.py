@@ -376,11 +376,11 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
             if nasec[isec] > 1:
                 for k, ivc in enumerate(ivc_idx):
                     slope_cp_l[k], _ = akima(xasec[isec], sasec[isec], xcp_arr[ivc])
-                    _, slope_vr_l[k] = akima(xasec[isec], sasec[isec], xvr[ivc])
+                    slope_vr_l[k], _ = akima(xasec[isec], sasec[isec], xvr[ivc])
             if nasec[isec + 1] > 1:
                 for k, ivc in enumerate(ivc_idx):
                     slope_cp_r[k], _ = akima(xasec[isec + 1], sasec[isec + 1], xcp_arr[ivc])
-                    _, slope_vr_r[k] = akima(xasec[isec + 1], sasec[isec + 1], xvr[ivc])
+                    slope_vr_r[k], _ = akima(xasec[isec + 1], sasec[isec + 1], xvr[ivc])
             slope_weight_l = (chord_l / chord_c) * (1.0 - span_frac_cp)
             slope_weight_r = (chord_r / chord_c) * span_frac_cp
             state.slopec[i_arr] = slope_weight_l * slope_cp_l + slope_weight_r * slope_cp_r
@@ -498,8 +498,8 @@ def sdupl(state, base_surf: int, ydup: float, new_surf: int) -> None:
         state.wstrip[jji] = state.wstrip[jj]
         state.tanle[jji] = -state.tanle[jj]
         state.ainc[jji] = state.ainc[jj]
-        state.ainc1[jji] = state.ainc1[jj]
-        state.ainc2[jji] = state.ainc2[jj]
+        state.ainc1[jji] = state.ainc2[jj]
+        state.ainc2[jji] = state.ainc1[jj]
         state.lssurf[jji] = new_surf
 
         if state.ndesign > 0:
