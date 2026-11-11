@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import math
 import numpy as np
 
 from openavl.aero.aic import dot
@@ -19,13 +18,6 @@ from openavl.geom.geometry import solver_surface_index, solver_surface_name
 # Fortran ICRS/JCRS indexing for explicit cross-product components.
 ICRS = (1, 2, 0)
 JCRS = (2, 0, 1)
-
-
-def _gam_scalar(gam: np.ndarray, i: int) -> np.float64:
-    """Return circulation at vortex ``i`` (supports 1D or legacy 2D storage)."""
-    if gam.ndim == 1:
-        return (gam[i])
-    return (gam[i, 0])
 
 
 def vinfab(state: Any) -> Any:
@@ -513,65 +505,304 @@ def _accumulate_all_vortex_forces(
     ), cnc, cnc_u_acc, cnc_d_acc
 
 
-def _get_sfforc_work(state: Any, numax: int, ncontrol: int) -> dict[str, np.ndarray]:
-    """Return strip-force work buffers from state, or local fallbacks for minimal states."""
-    nc = max(1, ncontrol)
+class _StripLoads:
+    """Loads of the active strips, in body axes about the strip c/4 point.
 
-    def _buf(name: str, shape: tuple[int, ...]) -> np.ndarray:
-        arr = getattr(state, name, None)
-        if arr is None or arr.shape != shape:
-            arr = np.zeros(shape, dtype=np.float64)
-            setattr(state, name, arr)
-        return arr
-
-    # Only the buffers sfforc still writes into: strip loads and their
-    # sensitivities are now held as Python floats / row views of the per-call
-    # strip sums, so the remaining ``sfforc_*`` fields on AVLState are unused.
-    # ULIFT_D stays all-zero (the lift direction does not depend on controls).
-    return {
-        "ulift": _buf("sfforc_ulift", (3,)),
-        "ulift_u": _buf("sfforc_ulift_u", (3, numax)),
-        "ulift_d": _buf("sfforc_ulift_d", (3, nc))[:, :nc],
-        "ulmag_u": _buf("sfforc_ulmag_u", (numax,)),
-        "veff_u": _buf("sfforc_veff_u", (3, numax)),
-        "veffmag_u": _buf("sfforc_veffmag_u", (numax,)),
-    }
-
-
-def _fill_ulift_u(
-    ulift_u: np.ndarray,
-    ulmag_u: np.ndarray,
-    numax: int,
-    spn: tuple[float, float, float],
-    ulift_raw: tuple[float, float, float] | None,
-    ulift: tuple[float, float, float],
-    ulmag: float,
-) -> None:
-    """Fill ULIFT_U, the sensitivity of the unit strip lift direction.
-
-    ULIFT = UDRAG x SPN / |UDRAG x SPN| with UDRAG = VINF, so UDRAG_U is the
-    identity on the three freestream components and zero elsewhere.
-    ``ulift_raw`` is the un-normalised cross product (``None`` when its
-    magnitude is zero, in which case ULIFT_U is zero) and ``ulift`` the
-    normalised direction. Same operations and order as AVL's SFFORC loops.
+    Forces are normalised by strip area, moments by strip area and chord.
+    Component index first: ``cf[k]`` is a length-``m`` array over the active
+    strips, ``cf_u[k]`` is ``(m, numax)`` and ``cf_d[k]`` is ``(m, ncontrol)``.
     """
-    ulift_u.fill(0.0)
-    if ulift_raw is None:
-        return
+
+    __slots__ = ("cf", "cm", "cnc", "cf_u", "cm_u", "cnc_u", "cf_d", "cm_d", "cnc_d")
+
+    def __init__(self, strip_sums, act, numax, ncontrol):
+        (
+            (
+                cfx, cfy, cfz, cmx, cmy, cmz,
+                cfx_u, cfy_u, cfz_u, cmx_u, cmy_u, cmz_u,
+                cfx_d, cfy_d, cfz_d, cmx_d, cmy_d, cmz_d,
+            ),
+            cnc, cnc_u, cnc_d,
+        ) = strip_sums
+        m = act.size
+        self.cf = np.stack((cfx[act], cfy[act], cfz[act]))
+        self.cm = np.stack((cmx[act], cmy[act], cmz[act]))
+        self.cnc = cnc[act]
+        self.cf_u = np.stack((cfx_u[act, :numax], cfy_u[act, :numax], cfz_u[act, :numax]))
+        self.cm_u = np.stack((cmx_u[act, :numax], cmy_u[act, :numax], cmz_u[act, :numax]))
+        self.cnc_u = cnc_u[act, :numax]
+        if ncontrol:
+            self.cf_d = np.stack((cfx_d[act, :ncontrol], cfy_d[act, :ncontrol], cfz_d[act, :ncontrol]))
+            self.cm_d = np.stack((cmx_d[act, :ncontrol], cmy_d[act, :ncontrol], cmz_d[act, :ncontrol]))
+            self.cnc_d = cnc_d[act, :ncontrol]
+        else:
+            self.cf_d = np.zeros((3, m, 0), dtype=np.float64)
+            self.cm_d = np.zeros((3, m, 0), dtype=np.float64)
+            self.cnc_d = np.zeros((m, 0), dtype=np.float64)
+
+
+def _strip_lift_direction(vx, vy, vz, ensy, ensz):
+    """Unit lift direction of each strip, ULIFT = UDRAG x SPN / |UDRAG x SPN|.
+
+    The "spanwise" vector SPN = (0, ENSZ, -ENSY) is the cross product of the
+    strip normal with the X chordline; the wind-axes stream vector UDRAG = VINF
+    defines the drag direction (HHY 02272024: was stability axis). Where
+    |UDRAG x SPN| = 0 the lift direction defaults to +Z.
+
+    Returns ``(spn, raw, ulmag, ulift)``: SPN, the un-normalised cross
+    product, its magnitude and the unit lift direction, each per strip.
+    """
+    zero = np.zeros_like(ensy)
+    spn = (zero, ensz, -ensy)
+    raw = _cross3(vx, vy, vz, spn[0], spn[1], spn[2])
+    ulmag = np.sqrt(raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2])
+    degenerate = ulmag == 0.0
+    safe = np.where(degenerate, 1.0, ulmag)
+    ulift = (
+        np.where(degenerate, 0.0, raw[0] / safe),
+        np.where(degenerate, 0.0, raw[1] / safe),
+        np.where(degenerate, 1.0, raw[2] / safe),
+    )
+    return spn, raw, ulmag, ulift
+
+
+def _strip_lift_direction_u(spn, raw, ulmag, ulift, numax):
+    """ULIFT_U, sensitivity of the unit lift direction, as ``(3, m, numax)``.
+
+    UDRAG_U is the identity on the three freestream components and zero
+    elsewhere. Same operations and order as AVL's SFFORC loops; zero where
+    the lift direction is the +Z default.
+    """
+    m = ulmag.shape[0]
+    ulift_u = np.empty((3, m, numax), dtype=np.float64)
     for k in range(3):
         ic, jc = ICRS[k], JCRS[k]
         for n in range(numax):
-            ulift_u[k, n] = (
+            ulift_u[k, :, n] = (
                 (1.0 if ic == n else 0.0) * spn[jc] - (1.0 if jc == n else 0.0) * spn[ic]
             )
-    for n in range(numax):
-        ulmag_u[n] = (
-            (ulift_raw[0] * ulift_u[0, n] + ulift_raw[1] * ulift_u[1, n]
-             + ulift_raw[2] * ulift_u[2, n]) / ulmag
-        )
+    degenerate = ulmag == 0.0
+    safe = np.where(degenerate, 1.0, ulmag)[:, np.newaxis]
+    ulmag_u = (
+        raw[0][:, np.newaxis] * ulift_u[0]
+        + raw[1][:, np.newaxis] * ulift_u[1]
+        + raw[2][:, np.newaxis] * ulift_u[2]
+    ) / safe
     for k in range(3):
-        for n in range(numax):
-            ulift_u[k, n] = ((ulift_u[k, n] - (ulift[k] * ulmag_u[n])) / ulmag)
+        ulift_u[k] = (ulift_u[k] - (ulift[k][:, np.newaxis] * ulmag_u)) / safe
+    ulift_u[:, degenerate, :] = 0.0
+    return ulift_u
+
+
+def _add_trailing_leg_forces(state, act, loads, rc4, cr, sr, ensy, ensz,
+                             vinf_f, xyzref_f, wrot_f, gam, gam_u, numax):
+    """Add h.v. forces from trailing legs lying on the wing surface (LTRFORCE).
+
+    Each bound vortex has two chordwise trailing legs on the wing, from its
+    endpoints RV1/RV2 to the strip trailing edge. The contribution of every
+    leg is evaluated at once; ``np.add.at`` then adds them to the strip loads
+    leg by leg, in AVL's (vortex, leg) order, so the sums round exactly as the
+    original loop's. As in the code this was ported from, the legs add no
+    control (``_d``) sensitivities.
+    """
+    vx, vy, vz = vinf_f
+    xref, yref, zref = xyzref_f
+    wx, wy, wz = wrot_f
+    nvc = state.nvstrp[act].astype(np.intp)
+    if not nvc.sum():
+        return
+    # One entry per leg, in AVL's loop order: strip, then chordwise vortex,
+    # then the RV1 leg followed by the RV2 leg.
+    first = state.ijfrst[act].astype(np.intp)
+    vortex = np.concatenate([np.arange(f, f + n) for f, n in zip(first.tolist(), nvc.tolist())])
+    i = np.repeat(vortex, 2)
+    q = np.repeat(np.arange(act.size), 2 * nvc)
+    leg1 = np.tile((True, False), vortex.size)     # leg from RV1, else from RV2
+    strip = act[q]
+    xte = np.where(
+        leg1,
+        state.rle1[0, strip] + state.chord1[strip],
+        state.rle2[0, strip] + state.chord2[strip],
+    )
+    p = np.where(leg1, state.rv1[:3, i], state.rv2[:3, i])
+    r = (0.5 * (p[0] + xte) - rc4[0][q], p[1] - rc4[1][q], p[2] - rc4[2][q])
+    rrot = (0.5 * (p[0] + xte) - xref, p[1] - yref, p[2] - zref)
+    gleg = (np.where(leg1, p[0] - xte, xte - p[0]), 0.0, 0.0)
+    # set total effective velocity = freestream + rotation
+    # (ignores h.v. induced contribution along trailing leg on wing)
+    vrot = _cross3(rrot[0], rrot[1], rrot[2], wx, wy, wz)
+    leg_veff = (vx + vrot[0], vy + vrot[1], vz + vrot[2])
+    # VEFF_U columns: unit vectors for the freestream components,
+    # RROT x e_k for the rotation components.
+    leg_veff_u = (
+        (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0),
+        _cross3(rrot[0], rrot[1], rrot[2], 1.0, 0.0, 0.0),
+        _cross3(rrot[0], rrot[1], rrot[2], 0.0, 1.0, 0.0),
+        _cross3(rrot[0], rrot[1], rrot[2], 0.0, 0.0, 1.0),
+    )
+    f = _cross3(leg_veff[0], leg_veff[1], leg_veff[2], gleg[0], gleg[1], gleg[2])
+    tg = 2.0 * gam[i]
+    srq = sr[q]
+    crq = cr[q]
+    dcf = tuple((tg * f[k]) / srq for k in range(3))
+    dcm = (
+        ((dcf[2] * r[1]) - (dcf[1] * r[2])) / crq,
+        ((dcf[0] * r[2]) - (dcf[2] * r[0])) / crq,
+        ((dcf[1] * r[0]) - (dcf[0] * r[1])) / crq,
+    )
+    for k in range(3):
+        np.add.at(loads.cf[k], q, dcf[k])
+        np.add.at(loads.cm[k], q, dcm[k])
+    np.add.at(loads.cnc, q, crq * (ensy[q] * dcf[1] + ensz[q] * dcf[2]))
+
+    nleg = q.size
+    dcf_u = np.empty((3, nleg, numax), dtype=np.float64)
+    tgu = 2.0 * gam_u[i, :numax]
+    for n in range(numax):
+        vu = leg_veff_u[n]
+        fu = _cross3(vu[0], vu[1], vu[2], gleg[0], gleg[1], gleg[2])
+        for k in range(3):
+            dcf_u[k, :, n] = (tgu[:, n] * f[k] + tg * fu[k]) / srq
+    crq_c = crq[:, np.newaxis]
+    r_c = tuple(c[:, np.newaxis] for c in r)
+    dcm_u = (
+        ((dcf_u[2] * r_c[1]) - (dcf_u[1] * r_c[2])) / crq_c,
+        ((dcf_u[0] * r_c[2]) - (dcf_u[2] * r_c[0])) / crq_c,
+        ((dcf_u[1] * r_c[0]) - (dcf_u[0] * r_c[1])) / crq_c,
+    )
+    for k in range(3):
+        np.add.at(loads.cf_u[k], q, dcf_u[k])
+        np.add.at(loads.cm_u[k], q, dcm_u[k])
+    np.add.at(
+        loads.cnc_u, q,
+        crq_c * (ensy[q][:, np.newaxis] * dcf_u[1] + ensz[q][:, np.newaxis] * dcf_u[2]),
+    )
+
+
+def _add_viscous_strip_drag(state, act, vis, loads, rc4, cr, ensy, ensz, ulift, ulift_u,
+                            vinf_f, xyzref_f, wrot_f, numax, ncontrol):
+    """Drag terms due to viscous effects; CD from user-specified CD(CL) polar.
+
+    ``vis`` selects the viscous strips among the active ones. Updates
+    ``loads`` in place and returns the strip viscous drag CDV_LSTRP of the
+    selected strips.
+    """
+    vx, vy, vz = vinf_f
+    xref, yref, zref = xyzref_f
+    wx, wy, wz = wrot_f
+    nvis = vis.size
+    cr = cr[vis][:, np.newaxis]
+    ensy = ensy[vis][:, np.newaxis]
+    ensz = ensz[vis][:, np.newaxis]
+    ul = tuple(u[vis] for u in ulift)
+    ul_u = ulift_u[:, vis, :]
+    # The lift direction does not depend on the controls (ULIFT_D = 0).
+    ul_d = np.zeros((3, max(1, ncontrol)), dtype=np.float64)
+    cfx, cfy, cfz = loads.cf[:, vis]
+    cfx_u, cfy_u, cfz_u = loads.cf_u[:, vis, :]
+    cfx_d, cfy_d, cfz_d = loads.cf_d[:, vis, :]
+
+    # Onset velocity at strip c/4 = freestream + rotation
+    rrot0 = rc4[0][vis] - xref
+    rrot1 = rc4[1][vis] - yref
+    rrot2 = rc4[2][vis] - zref
+    vrot0, vrot1, vrot2 = _cross3(rrot0, rrot1, rrot2, wx, wy, wz)
+    ve = (vx + vrot0, vy + vrot1, vz + vrot2)
+    veffmag = np.sqrt(ve[0] * ve[0] + ve[1] * ve[1] + ve[2] * ve[2])
+    veff_u = np.zeros((3, nvis, numax), dtype=np.float64)
+    veff_u[0, :, 0] = 1.0
+    veff_u[1, :, 1] = 1.0
+    veff_u[2, :, 2] = 1.0
+    veff_u[1, :, 3] = rrot2
+    veff_u[2, :, 3] = -rrot1
+    veff_u[0, :, 4] = -rrot2
+    veff_u[2, :, 4] = rrot0
+    veff_u[0, :, 5] = rrot1
+    veff_u[1, :, 5] = -rrot0
+    veffmag_c = veffmag[:, np.newaxis]
+    veffmag_u = (
+        ve[0][:, np.newaxis] * veff_u[0]
+        + ve[1][:, np.newaxis] * veff_u[1]
+        + ve[2][:, np.newaxis] * veff_u[2]
+    ) / veffmag_c
+
+    clv = (ul[0] * cfx + ul[1] * cfy + ul[2] * cfz)
+    clv_u = (
+        ul[0][:, np.newaxis] * cfx_u + ul_u[0] * cfx[:, np.newaxis]
+        + ul[1][:, np.newaxis] * cfy_u + ul_u[1] * cfy[:, np.newaxis]
+        + ul[2][:, np.newaxis] * cfz_u + ul_u[2] * cfz[:, np.newaxis]
+    )
+    clv_d = (
+        ul[0][:, np.newaxis] * cfx_d + ul_d[0] * cfx[:, np.newaxis]
+        + ul[1][:, np.newaxis] * cfy_d + ul_d[1] * cfy[:, np.newaxis]
+        + ul[2][:, np.newaxis] * cfz_d + ul_d[2] * cfz[:, np.newaxis]
+    )
+    # Get CD from CLCD function using strip CL as parameter (scalar polar)
+    cdv = np.empty(nvis, dtype=np.float64)
+    cdv_clv = np.empty(nvis, dtype=np.float64)
+    clcd = state.clcd
+    for q, strip in enumerate(act[vis].tolist()):
+        cdv[q], cdv_clv[q] = cdcl(clcd[strip, :], float(clv[q]))
+
+    # Strip viscous force contribution (per unit strip area)
+    dcvf = [(ve[k] * veffmag * cdv) for k in range(3)]
+    loads.cf[:, vis] = (cfx + dcvf[0], cfy + dcvf[1], cfz + dcvf[2])
+    cdv_strip = (vx * dcvf[0] + vy * dcvf[1] + vz * dcvf[2])
+    # d(CD)/d(CL) factor, (VEFF*|VEFF|*CDV_CLV) per component
+    clv_factor = [(ve[k] * veffmag * cdv_clv)[:, np.newaxis] for k in range(3)]
+    cdv_c = cdv[:, np.newaxis]
+    dcvf_u = [
+        (veff_u[k] * veffmag_c + ve[k][:, np.newaxis] * veffmag_u) * cdv_c
+        + clv_factor[k] * clv_u
+        for k in range(3)
+    ]
+    loads.cf_u[:, vis, :] = (cfx_u + dcvf_u[0], cfy_u + dcvf_u[1], cfz_u + dcvf_u[2])
+    loads.cnc_u[vis] = loads.cnc_u[vis] + cr * (ensy * dcvf_u[1] + ensz * dcvf_u[2])
+    dcvf_d = [clv_factor[k] * clv_d for k in range(3)]
+    loads.cf_d[:, vis, :] = (cfx_d + dcvf_d[0], cfy_d + dcvf_d[1], cfz_d + dcvf_d[2])
+    if ncontrol:
+        loads.cnc_d[vis] = loads.cnc_d[vis] + cr * (ensy * dcvf_d[1] + ensz * dcvf_d[2])
+    return cdv_strip
+
+
+def _clmax_derivative_correction(state, strip, ulift, ulift_u, numax, ncontrol):
+    """Prepare the CLmax clipping derivatives of one strip (OpenAVL extension).
+
+    For s = Clmax / Cl, d(s F) = s (dF - F dCl / Cl).  Form the expression in
+    parentheses here, while the local lift direction and all uncapped strip
+    loads are still available. The per-surface pass in ``sfforc`` then
+    applies s to both loads and derivatives.
+    """
+    ulift_d = np.zeros((3, max(1, ncontrol)), dtype=np.float64)
+    local_cl = state.cl_lstrp[strip]
+    force = state.cfstrp[:, strip]
+    for suffix, count, lift_deriv in (
+        ("u", numax, ulift_u),
+        ("d", ncontrol, ulift_d[:, :ncontrol]),
+    ):
+        if not count:
+            continue
+        force_deriv = getattr(state, f"cfst_{suffix}")[:, strip, :count]
+        relative_cl_deriv = (
+            ulift @ force_deriv + force @ lift_deriv
+        ) / local_cl
+        for deriv_name, load_name in (
+            ("cnc", "cnc"), ("cdst", "cdstrp"),
+            ("cyst", "cystrp"), ("clst", "clstrp"),
+        ):
+            getattr(state, f"{deriv_name}_{suffix}")[strip, :count] -= (
+                getattr(state, load_name)[strip] * relative_cl_deriv
+            )
+        force_deriv -= force[:, None] * relative_cl_deriv
+        getattr(state, f"cmst_{suffix}")[:, strip, :count] -= (
+            state.cmstrp[:, strip, None] * relative_cl_deriv
+        )
+
+
+def _inverse_or_one(x: np.ndarray) -> np.ndarray:
+    """``1/x`` elementwise, with 1 where ``x == 0`` (AVL's ``VSQI``/``VPSQI``)."""
+    zero = x == 0.0
+    return np.where(zero, 1.0, 1.0 / np.where(zero, 1.0, x))
 
 
 _MISSING = object()
@@ -670,24 +901,7 @@ def sfforc(state: Any) -> Any:
     wv_d  = _attr_or_zeros(state, "wv_d", (3, nvor, nc1))
     env_d = _attr_or_zeros(state, "env_d", (3, nvor, nc1))
 
-    work = _get_sfforc_work(state, numax, ncontrol)
-    ulift = work["ulift"]
-    ulift_u = work["ulift_u"]
-    ulift_d = work["ulift_d"]
-    ulmag_u = work["ulmag_u"]
-    veff_u = work["veff_u"]
-    veffmag_u = work["veffmag_u"]
-
-    (
-        (
-            strip_cfx, strip_cfy, strip_cfz, strip_cmx, strip_cmy, strip_cmz,
-            strip_cfx_u, strip_cfy_u, strip_cfz_u, strip_cmx_u, strip_cmy_u, strip_cmz_u,
-            strip_cfx_d, strip_cfy_d, strip_cfz_d, strip_cmx_d, strip_cmy_d, strip_cmz_d,
-        ),
-        strip_cnc,
-        strip_cnc_u,
-        strip_cnc_d,
-    ) = _accumulate_all_vortex_forces(
+    strip_sums = _accumulate_all_vortex_forces(
         state, numax, ncontrol,
         gam, gam_u, gam_d,
         vv, vv_u, vv_d,
@@ -695,444 +909,163 @@ def sfforc(state: Any) -> Any:
         env_d, lnfld_wv,
     )
 
-    # Hoist loop-invariant data out of the strip loop.  ``tolist`` converts
-    # float64 to Python floats exactly, so scalar arithmetic on them gives the
-    # same IEEE results as on NumPy scalars, only faster.
+    # Integrate the forces strip-wise, then surface-wise and into totals.
+    # All strip quantities below are arrays over the active strips ``act``;
+    # strips that are switched off or have zero width are zeroed instead.
     nstrip = state.nstrip
-    vinf = state.vinf
-    # Wind axes stream vector defines drag direction (HHY 02272024: was stability axis)
-    vx, vy, vz = float(vinf[0]), float(vinf[1]), float(vinf[2])
-    xref, yref, zref = (float(v) for v in state.xyzref[:3])
-    wx, wy, wz = (float(v) for v in state.wrot[:3])
-    lvisc = state.lvisc
-    lviscstrp = state.lviscstrp
-    clcd = state.clcd
-    rv1 = state.rv1
-    rv2 = state.rv2
+    active = ~np.asarray(state.lstripoff[:nstrip], dtype=bool) & (state.wstrip[:nstrip] != 0.0)
+    act = np.flatnonzero(active)
+    for strip in np.flatnonzero(~active).tolist():
+        _zero_strip(
+            state, strip, int(state.nvstrp[strip]), int(state.ijfrst[strip]), numax, ncontrol
+        )
 
-    lstripoff_l = state.lstripoff[:nstrip].tolist()
-    wstrip_l = state.wstrip[:nstrip].tolist()
-    chord_l = state.chord[:nstrip].tolist()
-    ijfrst_l = state.ijfrst[:nstrip].tolist()
-    nvstrp_l = state.nvstrp[:nstrip].tolist()
-    ensy_l = state.ensy[:nstrip].tolist()
-    ensz_l = state.ensz[:nstrip].tolist()
-    rlex_l, rley_l, rlez_l = state.rle[:3, :nstrip].tolist()
-    rle1x_l, rle1y_l, rle1z_l = state.rle1[:3, :nstrip].tolist()
-    rle2x_l, rle2y_l, rle2z_l = state.rle2[:3, :nstrip].tolist()
-    chord1_l = state.chord1[:nstrip].tolist()
-    chord2_l = state.chord2[:nstrip].tolist()
-    xsref_l = state.xsref[:nstrip].tolist()
-    ysref_l = state.ysref[:nstrip].tolist()
-    zsref_l = state.zsref[:nstrip].tolist()
-    essx_l, essy_l, essz_l = state.ess[:3, :nstrip].tolist()
-    ainc = state.ainc[:nstrip]
-    sinainc_l = np.sin(ainc).tolist()
-    cosainc_l = np.cos(ainc).tolist()
-    lssurf = state.lssurf[:nstrip]
-    mirrored_l = (state.imags[lssurf] < 0).tolist()
-    clmax_l = state.clmax_surf[lssurf].tolist()
-    strip_cfx_l = strip_cfx[:nstrip].tolist()
-    strip_cfy_l = strip_cfy[:nstrip].tolist()
-    strip_cfz_l = strip_cfz[:nstrip].tolist()
-    strip_cmx_l = strip_cmx[:nstrip].tolist()
-    strip_cmy_l = strip_cmy[:nstrip].tolist()
-    strip_cmz_l = strip_cmz[:nstrip].tolist()
-    strip_cnc_l = strip_cnc[:nstrip].tolist()
+    vinf_f = tuple(float(v) for v in state.vinf[:3])
+    xyzref_f = tuple(float(v) for v in state.xyzref[:3])
+    wrot_f = tuple(float(v) for v in state.wrot[:3])
+    vx, vy, vz = vinf_f
+    xref, yref, zref = xyzref_f
+    wx, wy, wz = wrot_f
 
-    cnc = state.cnc
-    cnc_u = state.cnc_u
-    cnc_d = state.cnc_d if ncontrol else None
-    cf_lstrp = state.cf_lstrp
-    cm_lstrp = state.cm_lstrp
-    cfstrp = state.cfstrp
-    cmstrp = state.cmstrp
-    cdstrp = state.cdstrp
-    cystrp = state.cystrp
-    clstrp = state.clstrp
-    cdst_a = state.cdst_a
-    cyst_a = state.cyst_a
-    clst_a = state.clst_a
-    cdst_u = state.cdst_u
-    cyst_u = state.cyst_u
-    clst_u = state.clst_u
-    cfst_u = state.cfst_u
-    cmst_u = state.cmst_u
+    # Strip forces normalized to strip reference quantities
+    cr = state.chord[act]
+    sr = cr * state.wstrip[act]
+    ensy = state.ensy[act]
+    ensz = state.ensz[act]
+    # Use the strip 1/4 chord location for strip moments
+    rc4 = (state.rle[0, act] + (0.25 * cr), state.rle[1, act], state.rle[2, act])
+
+    # Local strip lift and drag directions (drag = wind axes stream vector)
+    spn, ulift_raw, ulmag, ulift = _strip_lift_direction(vx, vy, vz, ensy, ensz)
+    loads = _StripLoads(strip_sums, act, numax, ncontrol)
+
+    # Add h.v. forces from trailing legs lying on the wing surface
+    if ltrforce:
+        _add_trailing_leg_forces(
+            state, act, loads, rc4, cr, sr, ensy, ensz,
+            vinf_f, xyzref_f, wrot_f, gam, gam_u, numax,
+        )
+
+    # ULIFT_U is only needed by the viscous and CLmax branches.
+    vis = (
+        np.flatnonzero(state.lviscstrp[act]) if state.lvisc
+        else np.zeros(0, dtype=np.intp)
+    )
+    clmax = state.clmax_surf[state.lssurf[act]]
+    ulift_u = None
+    if vis.size or np.any(clmax > 0.0):
+        ulift_u = _strip_lift_direction_u(spn, ulift_raw, ulmag, ulift, numax)
+
+    # Drag terms due to viscous effects; CD from user-specified CD(CL) polar
+    cdv_lstrp = np.zeros(act.size, dtype=np.float64)
+    if vis.size:
+        cdv_lstrp[vis] = _add_viscous_strip_drag(
+            state, act, vis, loads, rc4, cr, ensy, ensz, ulift, ulift_u,
+            vinf_f, xyzref_f, wrot_f, numax, ncontrol,
+        )
+    state.cdv_lstrp[act] = cdv_lstrp
+
+    # At this point strip forces are in body axes at c/4, normalized by area/chord
+    cfx, cfy, cfz = loads.cf
+    cmx, cmy, cmz = loads.cm
+    cf_u, cm_u = loads.cf_u, loads.cm_u
+    cf_d, cm_d = loads.cf_d, loads.cm_d
+    state.cnc[act] = loads.cnc
+    state.cnc_u[act, :numax] = loads.cnc_u
     if ncontrol:
-        cdst_d = state.cdst_d
-        cyst_d = state.cyst_d
-        clst_d = state.clst_d
-        cfst_d = state.cfst_d
-        cmst_d = state.cmst_d
-    cdv_lstrp = state.cdv_lstrp
-    cl_lstrp = state.cl_lstrp
-    cd_lstrp = state.cd_lstrp
-    cmc4_lstrp = state.cmc4_lstrp
-    ca_lstrp = state.ca_lstrp
-    cn_lstrp = state.cn_lstrp
-    clt_lstrp = state.clt_lstrp
-    cla_lstrp = state.cla_lstrp
-    cmle_lstrp = state.cmle_lstrp
-    empty_d = np.zeros(0, dtype=np.float64)
+        state.cnc_d[act, :ncontrol] = loads.cnc_d
+    state.cf_lstrp[:, act] = loads.cf
+    state.cm_lstrp[:, act] = loads.cm
+    state.cfstrp[:, act] = loads.cf
+    # Transform strip body axes forces into stability axes
+    state.cdstrp[act] = (cfx * cosa + cfz * sina)
+    state.cystrp[act] = cfy
+    state.clstrp[act] = (-cfx * sina + cfz * cosa)
+    state.cdst_a[act] = (-cfx * sina + cfz * cosa)
+    state.cyst_a[act] = 0.0
+    state.clst_a[act] = (-cfx * cosa - cfz * sina)
+    state.cdst_u[act, :numax] = cf_u[0] * cosa + cf_u[2] * sina
+    state.cyst_u[act, :numax] = cf_u[1]
+    state.clst_u[act, :numax] = -cf_u[0] * sina + cf_u[2] * cosa
+    state.cfst_u[:, act, :numax] = cf_u
+    if ncontrol:
+        state.cdst_d[act, :ncontrol] = cf_d[0] * cosa + cf_d[2] * sina
+        state.cyst_d[act, :ncontrol] = cf_d[1]
+        state.clst_d[act, :ncontrol] = -cf_d[0] * sina + cf_d[2] * cosa
+        state.cfst_d[:, act, :ncontrol] = cf_d
 
-    # Integrate the forces strip-wise, then surface-wise and into totals
-    for strip in range(nstrip):
-        vortex_start = ijfrst_l[strip]
-        n_chordwise = nvstrp_l[strip]
-        if lstripoff_l[strip] or wstrip_l[strip] == 0.0:
-            _zero_strip(state, strip, n_chordwise, vortex_start, numax, ncontrol)
+    # vector from chord c/4 reference point to case reference point XYZREF
+    rref = (rc4[0] - xref, rc4[1] - yref, rc4[2] - zref)
+    # Strip moments in body axes about XYZREF, normalized by strip area/chord
+    state.cmstrp[0, act] = (cmx + ((cfz * rref[1]) - (cfy * rref[2])) / cr)
+    state.cmstrp[1, act] = (cmy + ((cfx * rref[2]) - (cfz * rref[0])) / cr)
+    state.cmstrp[2, act] = (cmz + ((cfy * rref[0]) - (cfx * rref[1])) / cr)
+    for deriv, cf_s, cm_s in (("u", cf_u, cm_u), ("d", cf_d, cm_d)):
+        count = cf_s.shape[2]
+        if not count:
             continue
+        r = tuple(c[:, np.newaxis] for c in rref)
+        cr_c = cr[:, np.newaxis]
+        cmst_s = getattr(state, f"cmst_{deriv}")
+        cmst_s[0, act, :count] = cm_s[0] + ((cf_s[2] * r[1]) - (cf_s[1] * r[2])) / cr_c
+        cmst_s[1, act, :count] = cm_s[1] + ((cf_s[0] * r[2]) - (cf_s[2] * r[0])) / cr_c
+        cmst_s[2, act, :count] = cm_s[2] + ((cf_s[1] * r[0]) - (cf_s[0] * r[1])) / cr_c
 
-        # Calculate strip forces normalized to strip reference quantities
-        cr = chord_l[strip]
-        sr = cr * wstrip_l[strip]
-        ensy = ensy_l[strip]
-        ensz = ensz_l[strip]
+    cl_lstrp = (ulift[0] * cfx + ulift[1] * cfy + ulift[2] * cfz)
+    state.cl_lstrp[act] = cl_lstrp
+    state.cd_lstrp[act] = (vx * cfx + vy * cfy + vz * cfz)
+    state.cmc4_lstrp[act] = (ensz * cmy - ensy * cmz)
+    # CN,CA forces rotated to be in and normal to strip incidence (HHY bugfix 01102024)
+    caxl0 = cfx
+    cnrm0 = (ensy * cfy + ensz * cfz)
+    sinainc = np.sin(state.ainc[act])
+    cosainc = np.cos(state.ainc[act])
+    state.ca_lstrp[act] = (caxl0 * cosainc - cnrm0 * sinainc)
+    state.cn_lstrp[act] = (cnrm0 * cosainc + caxl0 * sinainc)
 
-        # Define local strip lift and drag directions
-        # The "spanwise" vector is cross product of strip normal with X chordline
-        spn = (0.0, ensz, -ensy)
-        # Lift direction is vector product of "stream" and spanwise vector
-        ul0, ul1, ul2 = _cross3(vx, vy, vz, spn[0], spn[1], spn[2])
-        ulmag = math.sqrt(ul0 * ul0 + ul1 * ul1 + ul2 * ul2)
-        if ulmag == 0.0:
-            ulift_raw = None
-            ul0, ul1, ul2 = 0.0, 0.0, 1.0
-        else:
-            ulift_raw = (ul0, ul1, ul2)
-            ul0 = ul0 / ulmag
-            ul1 = ul1 / ulmag
-            ul2 = ul2 / ulmag
-        # ULIFT_U is only needed by the viscous and CLmax branches; build lazily.
-        ulift_u_ready = False
+    # set total effective velocity = freestream + rotation
+    rr0 = state.xsref[act] - xref
+    rr1 = state.ysref[act] - yref
+    rr2 = state.zsref[act] - zref
+    vr0, vr1, vr2 = _cross3(rr0, rr1, rr2, wx, wy, wz)
+    ve0 = vx + vr0
+    ve1 = vy + vr1
+    ve2 = vz + vr2
+    vsq = ve0 * ve0 + ve1 * ve1 + ve2 * ve2
+    # spanwise and perpendicular velocity components
+    es0, es1, es2 = state.ess[0, act], state.ess[1, act], state.ess[2, act]
+    vspan = (ve0 * es0 + ve1 * es1 + ve2 * es2)
+    vp0 = ve0 - es0 * vspan
+    vp1 = ve1 - es1 * vspan
+    vp2 = ve2 - es2 * vspan
+    vpsq = ((vp0 * vp0) + (vp1 * vp1) + (vp2 * vp2))
+    state.clt_lstrp[act] = (cl_lstrp * _inverse_or_one(vpsq))
+    state.cla_lstrp[act] = (cl_lstrp * _inverse_or_one(vsq))
 
-        # Use the strip 1/4 chord location for strip moments
-        rc4x = rlex_l[strip] + (0.25 * cr)
-        rc4y = rley_l[strip]
-        rc4z = rlez_l[strip]
-        cfx = strip_cfx_l[strip]
-        cfy = strip_cfy_l[strip]
-        cfz = strip_cfz_l[strip]
-        cmx = strip_cmx_l[strip]
-        cmy = strip_cmy_l[strip]
-        cmz = strip_cmz_l[strip]
-        cnc[strip] = strip_cnc_l[strip]
-        # Row views of this call's freshly built per-strip sums: in-place
-        # updates below only touch this strip's row, which nothing else reads.
-        cfx_u = strip_cfx_u[strip]
-        cfy_u = strip_cfy_u[strip]
-        cfz_u = strip_cfz_u[strip]
-        cmx_u = strip_cmx_u[strip]
-        cmy_u = strip_cmy_u[strip]
-        cmz_u = strip_cmz_u[strip]
-        if ncontrol:
-            cfx_d = strip_cfx_d[strip]
-            cfy_d = strip_cfy_d[strip]
-            cfz_d = strip_cfz_d[strip]
-            cmx_d = strip_cmx_d[strip]
-            cmy_d = strip_cmy_d[strip]
-            cmz_d = strip_cmz_d[strip]
-        else:
-            cfx_d = cfy_d = cfz_d = cmx_d = cmy_d = cmz_d = empty_d
-        cnc_u[strip, :numax] = strip_cnc_u[strip, :numax]
-        if ncontrol:
-            cnc_d[strip, :ncontrol] = strip_cnc_d[strip, :ncontrol]
+    # Moment about strip LE midpoint in direction of LE segment
+    rle = (rc4[0] - state.rle[0, act], rc4[1] - state.rle[1, act], rc4[2] - state.rle[2, act])
+    dle = state.rle2[:3, act] - state.rle1[:3, act]
+    mirrored = state.imags[state.lssurf[act]] < 0
+    delx, dely, delz = np.where(mirrored, -dle, dle)
+    dmag = np.sqrt((delx * delx) + (dely * dely) + (delz * delz))
+    has_le = dmag != 0.0
+    dmag = np.where(has_le, dmag, 1.0)
+    state.cmle_lstrp[act] = np.where(
+        has_le,
+        delx / dmag * (cmx + ((cfz * rle[1]) - (cfy * rle[2])) / cr)
+        + dely / dmag * (cmy + ((cfx * rle[2]) - (cfz * rle[0])) / cr)
+        + delz / dmag * (cmz + ((cfy * rle[0]) - (cfx * rle[1])) / cr),
+        0.0,
+    )
 
-        # Add h.v. forces from trailing legs lying on the wing surface
-        if ltrforce:
-            xte1 = rle1x_l[strip] + chord1_l[strip]
-            xte2 = rle2x_l[strip] + chord2_l[strip]
-            cnc_s = cnc[strip]
-            cfxu = cfx_u.tolist()
-            cfyu = cfy_u.tolist()
-            cfzu = cfz_u.tolist()
-            cmxu = cmx_u.tolist()
-            cmyu = cmy_u.tolist()
-            cmzu = cmz_u.tolist()
-            cncu = cnc_u[strip, :numax].tolist()
-            for chord_idx in range(n_chordwise):
-                i = vortex_start + chord_idx
-                gamma = _gam_scalar(gam, i)
-                gam_u_i = gam_u[i, :numax].tolist()
-                for leg in range(2):
-                    if leg == 0:
-                        px, py, pz = float(rv1[0, i]), float(rv1[1, i]), float(rv1[2, i])
-                        r0 = (0.5 * (px + xte1) - rc4x)
-                        r1 = (py - rc4y)
-                        r2 = (pz - rc4z)
-                        rrot0 = (0.5 * (px + xte1) - xref)
-                        rrot1 = (py - yref)
-                        rrot2 = (pz - zref)
-                        gleg0 = (px - xte1)
-                    else:
-                        px, py, pz = float(rv2[0, i]), float(rv2[1, i]), float(rv2[2, i])
-                        r0 = (0.5 * (px + xte2) - rc4x)
-                        r1 = (py - rc4y)
-                        r2 = (pz - rc4z)
-                        rrot0 = (0.5 * (px + xte2) - xref)
-                        rrot1 = (py - yref)
-                        rrot2 = (pz - zref)
-                        gleg0 = (xte2 - px)
-                    gleg1 = 0.0
-                    gleg2 = 0.0
-                    # set total effective velocity = freestream + rotation
-                    # (ignores h.v. induced contribution along trailing leg on wing)
-                    vrot0, vrot1, vrot2 = _cross3(rrot0, rrot1, rrot2, wx, wy, wz)
-                    leg_veff = (vx + vrot0, vy + vrot1, vz + vrot2)
-                    # VEFF_U columns: unit vectors for the freestream components,
-                    # RROT x e_k for the rotation components, zero beyond.
-                    leg_veff_u = [(0.0, 0.0, 0.0)] * numax
-                    leg_veff_u[0] = (1.0, 0.0, 0.0)
-                    leg_veff_u[1] = (0.0, 1.0, 0.0)
-                    leg_veff_u[2] = (0.0, 0.0, 1.0)
-                    leg_veff_u[3] = _cross3(rrot0, rrot1, rrot2, 1.0, 0.0, 0.0)
-                    leg_veff_u[4] = _cross3(rrot0, rrot1, rrot2, 0.0, 1.0, 0.0)
-                    leg_veff_u[5] = _cross3(rrot0, rrot1, rrot2, 0.0, 0.0, 1.0)
-                    f0, f1, f2 = _cross3(
-                        leg_veff[0], leg_veff[1], leg_veff[2], gleg0, gleg1, gleg2
-                    )
-                    tg = 2.0 * gamma
-                    fgam0 = tg * f0
-                    fgam1 = tg * f1
-                    fgam2 = tg * f2
-                    dcfx = (fgam0 / sr)
-                    dcfy = (fgam1 / sr)
-                    dcfz = (fgam2 / sr)
-                    cfx = (cfx + dcfx)
-                    cfy = (cfy + dcfy)
-                    cfz = (cfz + dcfz)
-                    cmx = (cmx + ((dcfz * r1) - (dcfy * r2)) / cr)
-                    cmy = (cmy + ((dcfx * r2) - (dcfz * r0)) / cr)
-                    cmz = (cmz + ((dcfy * r0) - (dcfx * r1)) / cr)
-                    cnc_s = (cnc_s + (cr * (ensy * dcfy + ensz * dcfz)))
-                    for n in range(numax):
-                        vu = leg_veff_u[n]
-                        fu0, fu1, fu2 = _cross3(vu[0], vu[1], vu[2], gleg0, gleg1, gleg2)
-                        tgu = 2.0 * gam_u_i[n]
-                        dcfx_u = ((tgu * f0 + tg * fu0) / sr)
-                        dcfy_u = ((tgu * f1 + tg * fu1) / sr)
-                        dcfz_u = ((tgu * f2 + tg * fu2) / sr)
-                        cfxu[n] = (cfxu[n] + dcfx_u)
-                        cfyu[n] = (cfyu[n] + dcfy_u)
-                        cfzu[n] = (cfzu[n] + dcfz_u)
-                        cmxu[n] = (cmxu[n] + ((dcfz_u * r1) - (dcfy_u * r2)) / cr)
-                        cmyu[n] = (cmyu[n] + ((dcfx_u * r2) - (dcfz_u * r0)) / cr)
-                        cmzu[n] = (cmzu[n] + ((dcfy_u * r0) - (dcfx_u * r1)) / cr)
-                        cncu[n] = (cncu[n] + (cr * (ensy * dcfy_u + ensz * dcfz_u)))
-            cnc[strip] = cnc_s
-            cfx_u[:] = cfxu
-            cfy_u[:] = cfyu
-            cfz_u[:] = cfzu
-            cmx_u[:] = cmxu
-            cmy_u[:] = cmyu
-            cmz_u[:] = cmzu
-            cnc_u[strip, :numax] = cncu
-
-        # Drag terms due to viscous effects; CD from user-specified CD(CL) polar
-        cdv_strip = 0.0
-        if lvisc and lviscstrp[strip]:
-            if not ulift_u_ready:
-                _fill_ulift_u(ulift_u, ulmag_u, numax, spn, ulift_raw, (ul0, ul1, ul2), ulmag)
-                ulift_u_ready = True
-            # Onset velocity at strip c/4 = freestream + rotation
-            rrot0 = rc4x - xref
-            rrot1 = rc4y - yref
-            rrot2 = rc4z - zref
-            vrot0, vrot1, vrot2 = _cross3(rrot0, rrot1, rrot2, wx, wy, wz)
-            ve0 = vx + vrot0
-            ve1 = vy + vrot1
-            ve2 = vz + vrot2
-            veffmag = math.sqrt(ve0 * ve0 + ve1 * ve1 + ve2 * ve2)
-            veff_u.fill(0.0)
-            veff_u[0, 0] = 1.0
-            veff_u[1, 1] = 1.0
-            veff_u[2, 2] = 1.0
-            veff_u[1, 3] = rrot2
-            veff_u[2, 3] = -rrot1
-            veff_u[0, 4] = -rrot2
-            veff_u[2, 4] = rrot0
-            veff_u[0, 5] = rrot1
-            veff_u[1, 5] = -rrot0
-            veffmag_u[:] = (ve0 * veff_u[0] + ve1 * veff_u[1] + ve2 * veff_u[2]) / veffmag
-            clv = (ul0 * cfx + ul1 * cfy + ul2 * cfz)
-            clv_u = (
-                ul0 * cfx_u + ulift_u[0] * cfx
-                + ul1 * cfy_u + ulift_u[1] * cfy
-                + ul2 * cfz_u + ulift_u[2] * cfz
-            )
-            clv_d = (
-                ul0 * cfx_d + ulift_d[0] * cfx
-                + ul1 * cfy_d + ulift_d[1] * cfy
-                + ul2 * cfz_d + ulift_d[2] * cfz
-            )
-            # Get CD from CLCD function using strip CL as parameter
-            cdv, cdv_clv = cdcl(clcd[strip, :], float(clv))
-            # Strip viscous force contribution (per unit strip area)
-            dcvfx = (ve0 * veffmag * cdv)
-            dcvfy = (ve1 * veffmag * cdv)
-            dcvfz = (ve2 * veffmag * cdv)
-            cfx = (cfx + dcvfx)
-            cfy = (cfy + dcvfy)
-            cfz = (cfz + dcvfz)
-            cdv_strip = (vx * dcvfx + vy * dcvfy + vz * dcvfz)
-            dcvfx_u = (
-                (veff_u[0] * veffmag + ve0 * veffmag_u) * cdv
-                + ve0 * veffmag * cdv_clv * clv_u
-            )
-            dcvfy_u = (
-                (veff_u[1] * veffmag + ve1 * veffmag_u) * cdv
-                + ve1 * veffmag * cdv_clv * clv_u
-            )
-            dcvfz_u = (
-                (veff_u[2] * veffmag + ve2 * veffmag_u) * cdv
-                + ve2 * veffmag * cdv_clv * clv_u
-            )
-            cfx_u += dcvfx_u
-            cfy_u += dcvfy_u
-            cfz_u += dcvfz_u
-            cnc_u[strip, :numax] += cr * (ensy * dcvfy_u + ensz * dcvfz_u)
-            dcvfx_d = ve0 * veffmag * cdv_clv * clv_d
-            dcvfy_d = ve1 * veffmag * cdv_clv * clv_d
-            dcvfz_d = ve2 * veffmag * cdv_clv * clv_d
-            cfx_d += dcvfx_d
-            cfy_d += dcvfy_d
-            cfz_d += dcvfz_d
-            if ncontrol:
-                cnc_d[strip, :ncontrol] += cr * (ensy * dcvfy_d + ensz * dcvfz_d)
-        cdv_lstrp[strip] = cdv_strip
-
-        # At this point strip forces are in body axes at c/4, normalized by area/chord
-        cf_lstrp[0, strip], cf_lstrp[1, strip], cf_lstrp[2, strip] = cfx, cfy, cfz
-        cm_lstrp[0, strip], cm_lstrp[1, strip], cm_lstrp[2, strip] = cmx, cmy, cmz
-        cfstrp[0, strip], cfstrp[1, strip], cfstrp[2, strip] = cfx, cfy, cfz
-        # Transform strip body axes forces into stability axes
-        cdstrp[strip] = (cfx * cosa + cfz * sina)
-        cystrp[strip] = cfy
-        clstrp[strip] = (-cfx * sina + cfz * cosa)
-        cdst_a[strip] = (-cfx * sina + cfz * cosa)
-        cyst_a[strip] = 0.0
-        clst_a[strip] = (-cfx * cosa - cfz * sina)
-        cdst_u[strip, :numax] = cfx_u * cosa + cfz_u * sina
-        cyst_u[strip, :numax] = cfy_u
-        clst_u[strip, :numax] = -cfx_u * sina + cfz_u * cosa
-        cfst_u[0, strip, :numax] = cfx_u
-        cfst_u[1, strip, :numax] = cfy_u
-        cfst_u[2, strip, :numax] = cfz_u
-        if ncontrol:
-            cdst_d[strip, :ncontrol] = cfx_d * cosa + cfz_d * sina
-            cyst_d[strip, :ncontrol] = cfy_d
-            clst_d[strip, :ncontrol] = -cfx_d * sina + cfz_d * cosa
-            cfst_d[0, strip, :ncontrol] = cfx_d
-            cfst_d[1, strip, :ncontrol] = cfy_d
-            cfst_d[2, strip, :ncontrol] = cfz_d
-
-        # vector from chord c/4 reference point to case reference point XYZREF
-        rref0 = rc4x - xref
-        rref1 = rc4y - yref
-        rref2 = rc4z - zref
-        # Strip moments in body axes about XYZREF, normalized by strip area/chord
-        cmstrp[0, strip] = (cmx + ((cfz * rref1) - (cfy * rref2)) / cr)
-        cmstrp[1, strip] = (cmy + ((cfx * rref2) - (cfz * rref0)) / cr)
-        cmstrp[2, strip] = (cmz + ((cfy * rref0) - (cfx * rref1)) / cr)
-        cmst_u[0, strip, :numax] = cmx_u + ((cfz_u * rref1) - (cfy_u * rref2)) / cr
-        cmst_u[1, strip, :numax] = cmy_u + ((cfx_u * rref2) - (cfz_u * rref0)) / cr
-        cmst_u[2, strip, :numax] = cmz_u + ((cfy_u * rref0) - (cfx_u * rref1)) / cr
-        if ncontrol:
-            cmst_d[0, strip, :ncontrol] = cmx_d + ((cfz_d * rref1) - (cfy_d * rref2)) / cr
-            cmst_d[1, strip, :ncontrol] = cmy_d + ((cfx_d * rref2) - (cfz_d * rref0)) / cr
-            cmst_d[2, strip, :ncontrol] = cmz_d + ((cfy_d * rref0) - (cfx_d * rref1)) / cr
-
-        local_cl = (ul0 * cfx + ul1 * cfy + ul2 * cfz)
-        cl_lstrp[strip] = local_cl
-        cd_lstrp[strip] = (vx * cfx + vy * cfy + vz * cfz)
-        cmc4_lstrp[strip] = (ensz * cmy - ensy * cmz)
-        # CN,CA forces rotated to be in and normal to strip incidence (HHY bugfix 01102024)
-        caxl0 = cfx
-        cnrm0 = (ensy * cfy + ensz * cfz)
-        sinainc = sinainc_l[strip]
-        cosainc = cosainc_l[strip]
-        ca_lstrp[strip] = (caxl0 * cosainc - cnrm0 * sinainc)
-        cn_lstrp[strip] = (cnrm0 * cosainc + caxl0 * sinainc)
-
-        # set total effective velocity = freestream + rotation
-        rr0 = xsref_l[strip] - xref
-        rr1 = ysref_l[strip] - yref
-        rr2 = zsref_l[strip] - zref
-        vr0, vr1, vr2 = _cross3(rr0, rr1, rr2, wx, wy, wz)
-        ve0 = vx + vr0
-        ve1 = vy + vr1
-        ve2 = vz + vr2
-        vsq = ve0 * ve0 + ve1 * ve1 + ve2 * ve2
-        vsqi = (1.0 if vsq == 0.0 else 1.0 / vsq)
-        # spanwise and perpendicular velocity components
-        es0 = essx_l[strip]
-        es1 = essy_l[strip]
-        es2 = essz_l[strip]
-        vspan = (ve0 * es0 + ve1 * es1 + ve2 * es2)
-        vp0 = ve0 - es0 * vspan
-        vp1 = ve1 - es1 * vspan
-        vp2 = ve2 - es2 * vspan
-        vpsq = ((vp0 * vp0) + (vp1 * vp1) + (vp2 * vp2))
-        vpsqi = (1.0 if vpsq == 0.0 else 1.0 / vpsq)
-        clt_lstrp[strip] = (local_cl * vpsqi)
-        cla_lstrp[strip] = (local_cl * vsqi)
-
-        # Moment about strip LE midpoint in direction of LE segment
-        rle0 = rc4x - rlex_l[strip]
-        rle1 = rc4y - rley_l[strip]
-        rle2 = rc4z - rlez_l[strip]
-        delx = (rle2x_l[strip] - rle1x_l[strip])
-        dely = (rle2y_l[strip] - rle1y_l[strip])
-        delz = (rle2z_l[strip] - rle1z_l[strip])
-        if mirrored_l[strip]:
-            delx = (-delx)
-            dely = (-dely)
-            delz = (-delz)
-        dmag = math.sqrt((delx * delx) + (dely * dely) + (delz * delz))
-        cmle = 0.0
-        if dmag != 0.0:
-            cmle = (
-                delx / dmag * (cmx + ((cfz * rle1) - (cfy * rle2)) / cr)
-                + dely / dmag * (cmy + ((cfx * rle2) - (cfz * rle0)) / cr)
-                + delz / dmag * (cmz + ((cfy * rle0) - (cfx * rle1)) / cr)
-            )
-        cmle_lstrp[strip] = cmle
-
-        clmax = clmax_l[strip]
-        local_cl = cl_lstrp[strip]
-        if clmax > 0.0 and local_cl > clmax:
-            if not ulift_u_ready:
-                _fill_ulift_u(ulift_u, ulmag_u, numax, spn, ulift_raw, (ul0, ul1, ul2), ulmag)
-                ulift_u_ready = True
-            ulift[0] = ul0
-            ulift[1] = ul1
-            ulift[2] = ul2
-            # For s = Clmax / Cl, d(s F) = s (dF - F dCl / Cl).
-            # Form the expression in parentheses here, while the local lift
-            # direction and all uncapped strip loads are still available.
-            # The surface loop below applies s to both loads and derivatives.
-            force = state.cfstrp[:, strip]
-            for suffix, count, lift_deriv in (
-                ("u", numax, ulift_u),
-                ("d", ncontrol, ulift_d[:, :ncontrol]),
-            ):
-                if not count:
-                    continue
-                force_deriv = getattr(state, f"cfst_{suffix}")[:, strip, :count]
-                relative_cl_deriv = (
-                    ulift @ force_deriv + force @ lift_deriv
-                ) / local_cl
-                for deriv_name, load_name in (
-                    ("cnc", "cnc"), ("cdst", "cdstrp"),
-                    ("cyst", "cystrp"), ("clst", "clstrp"),
-                ):
-                    getattr(state, f"{deriv_name}_{suffix}")[strip, :count] -= (
-                        getattr(state, load_name)[strip] * relative_cl_deriv
-                    )
-                force_deriv -= force[:, None] * relative_cl_deriv
-                getattr(state, f"cmst_{suffix}")[:, strip, :count] -= (
-                    state.cmstrp[:, strip, None] * relative_cl_deriv
-                )
+    # CLmax clipping derivatives, strip by strip, over the strips that clip
+    for q in np.flatnonzero((clmax > 0.0) & (cl_lstrp > clmax)).tolist():
+        _clmax_derivative_correction(
+            state, int(act[q]),
+            np.array((ulift[0][q], ulift[1][q], ulift[2][q])),
+            np.ascontiguousarray(ulift_u[:, q, :]),
+            numax, ncontrol,
+        )
 
     # --- Apply per-surface CLmax capping (OpenAVL extension) ---
     for isurf in range(state.nsurf):
@@ -1200,35 +1133,15 @@ def sfforc(state: Any) -> Any:
             state.cfst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
             state.cmst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
 
-    # Surface forces and moments summed from strip forces
+    # Surface forces and moments summed from strip forces.  Each sum below
+    # reduces the same per-strip products as AVL, grouped so that one NumPy
+    # reduction per group replaces one call per coefficient: rows of a
+    # C-ordered (q, nj) array reduce exactly like separate 1-D sums, and the
+    # leading axis of a C-ordered (nj, ...) array reduces strip by strip.
     for isurf in range(state.nsurf):
-        state.cdsurf[isurf] = 0.0
-        state.cysurf[isurf] = 0.0
-        state.clsurf[isurf] = 0.0
-        state.cfsurf[:, isurf] = 0.0
-        state.cmsurf[:, isurf] = 0.0
-        state.cdvsurf[isurf] = 0.0
-        state.cds_a[isurf] = 0.0
-        state.cys_a[isurf] = 0.0
-        state.cls_a[isurf] = 0.0
-        state.cds_u[isurf, :numax] = 0.0
-        state.cys_u[isurf, :numax] = 0.0
-        state.cls_u[isurf, :numax] = 0.0
-        state.cfs_u[:, isurf, :numax] = 0.0
-        state.cms_u[:, isurf, :numax] = 0.0
-        if ncontrol:
-            state.cds_d[isurf, :ncontrol] = 0.0
-            state.cys_d[isurf, :ncontrol] = 0.0
-            state.cls_d[isurf, :ncontrol] = 0.0
-            state.cfs_d[:, isurf, :ncontrol] = 0.0
-            state.cms_d[:, isurf, :ncontrol] = 0.0
-        state.cf_lsrf[:, isurf] = 0.0
-        state.cm_lsrf[:, isurf] = 0.0
-        enave = np.zeros(3, dtype=np.float64)
-
         j0 = int(state.jfrst[isurf])
         nj = int(state.nj[isurf])
-        js = np.arange(j0, j0 + nj, dtype=np.intp)
+        js = slice(j0, j0 + nj)
         sr = state.chord[js] * state.wstrip[js]
         cr = state.chord[js]
         scale_sref = sr / state.sref
@@ -1237,79 +1150,78 @@ def sfforc(state: Any) -> Any:
         scale_cm_c = scale_sref * (cr / state.cref)
         scale_cm_loc = scale_ssurf * (cr / state.cavesurf[isurf]) / cr
 
-        enave[0] = 0.0
-        enave[1] = float(np.sum(sr * state.ensy[js]))
-        enave[2] = float(np.sum(sr * state.ensz[js]))
+        # Strip c/4 points relative to the surface root LE (local moments)
+        rc4s = (state.rle[0, js] + 0.25 * state.chord[js], state.rle[1, js], state.rle[2, js])
+        rroot = state.rle1[:, j0] if state.imags[isurf] >= 0 else state.rle2[:, j0]
+        r = tuple(rc4s[k] - rroot[k] for k in range(3))
+        cf_l = state.cf_lstrp[:, js]
+        cm_l = state.cm_lstrp[:, js]
 
-        state.cdsurf[isurf] = float(np.sum(state.cdstrp[js] * scale_sref))
-        state.cysurf[isurf] = float(np.sum(state.cystrp[js] * scale_sref))
-        state.clsurf[isurf] = float(np.sum(state.clstrp[js] * scale_sref))
-        state.cfsurf[:, isurf] = np.sum(state.cfstrp[:, js] * scale_sref, axis=1)
-        state.cmsurf[0, isurf] = float(np.sum(state.cmstrp[0, js] * scale_cm_b))
-        state.cmsurf[1, isurf] = float(np.sum(state.cmstrp[1, js] * scale_cm_c))
-        state.cmsurf[2, isurf] = float(np.sum(state.cmstrp[2, js] * scale_cm_b))
-        state.cdvsurf[isurf] = float(np.sum(state.cdv_lstrp[js] * scale_sref))
-        state.cds_a[isurf] = float(np.sum(state.cdst_a[js] * scale_sref))
-        state.cys_a[isurf] = float(np.sum(state.cyst_a[js] * scale_sref))
-        state.cls_a[isurf] = float(np.sum(state.clst_a[js] * scale_sref))
-        state.cds_u[isurf, :numax] = np.sum(state.cdst_u[js, :numax] * scale_sref[:, np.newaxis], axis=0)
-        state.cys_u[isurf, :numax] = np.sum(state.cyst_u[js, :numax] * scale_sref[:, np.newaxis], axis=0)
-        state.cls_u[isurf, :numax] = np.sum(state.clst_u[js, :numax] * scale_sref[:, np.newaxis], axis=0)
-        state.cfs_u[:, isurf, :numax] = np.sum(
-            state.cfst_u[:, js, :numax] * scale_sref[np.newaxis, :, np.newaxis], axis=1
-        )
-        state.cms_u[0, isurf, :numax] = np.sum(
-            state.cmst_u[0, js, :numax] * scale_cm_b[:, np.newaxis], axis=0
-        )
-        state.cms_u[1, isurf, :numax] = np.sum(
-            state.cmst_u[1, js, :numax] * scale_cm_c[:, np.newaxis], axis=0
-        )
-        state.cms_u[2, isurf, :numax] = np.sum(
-            state.cmst_u[2, js, :numax] * scale_cm_b[:, np.newaxis], axis=0
-        )
-        if ncontrol:
-            state.cds_d[isurf, :ncontrol] = np.sum(
-                state.cdst_d[js, :ncontrol] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cys_d[isurf, :ncontrol] = np.sum(
-                state.cyst_d[js, :ncontrol] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cls_d[isurf, :ncontrol] = np.sum(
-                state.clst_d[js, :ncontrol] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cfs_d[:, isurf, :ncontrol] = np.sum(
-                state.cfst_d[:, js, :ncontrol] * scale_sref[np.newaxis, :, np.newaxis], axis=1
-            )
-            state.cms_d[0, isurf, :ncontrol] = np.sum(
-                state.cmst_d[0, js, :ncontrol] * scale_cm_b[:, np.newaxis], axis=0
-            )
-            state.cms_d[1, isurf, :ncontrol] = np.sum(
-                state.cmst_d[1, js, :ncontrol] * scale_cm_c[:, np.newaxis], axis=0
-            )
-            state.cms_d[2, isurf, :ncontrol] = np.sum(
-                state.cmst_d[2, js, :ncontrol] * scale_cm_b[:, np.newaxis], axis=0
-            )
-
-        rc4s = np.stack(
-            (
-                state.rle[0, js] + 0.25 * state.chord[js],
-                state.rle[1, js],
-                state.rle[2, js],
-            ),
-            axis=0,
-        )
-        if state.imags[isurf] >= 0:
-            rroot = state.rle1[:, j0]
-        else:
-            rroot = state.rle2[:, j0]
-        r = rc4s - rroot[:, np.newaxis]
-        state.cf_lsrf[:, isurf] = np.sum(state.cf_lstrp[:, js] * scale_ssurf, axis=1)
-        for k in range(3):
-            ic, jc = ICRS[k], JCRS[k]
-            state.cm_lsrf[k, isurf] = float(np.sum(
+        sums = np.sum(np.stack((
+            sr * state.ensy[js],
+            sr * state.ensz[js],
+            state.cdstrp[js] * scale_sref,
+            state.cystrp[js] * scale_sref,
+            state.clstrp[js] * scale_sref,
+            state.cmstrp[0, js] * scale_cm_b,
+            state.cmstrp[1, js] * scale_cm_c,
+            state.cmstrp[2, js] * scale_cm_b,
+            state.cdv_lstrp[js] * scale_sref,
+            state.cdst_a[js] * scale_sref,
+            state.cyst_a[js] * scale_sref,
+            state.clst_a[js] * scale_sref,
+            *(
                 scale_cm_loc
-                * (state.cm_lstrp[k, js] + state.cf_lstrp[jc, js] * r[ic] - state.cf_lstrp[ic, js] * r[jc])
-            ))
+                * (cm_l[k] + cf_l[JCRS[k]] * r[ICRS[k]] - cf_l[ICRS[k]] * r[JCRS[k]])
+                for k in range(3)
+            ),
+        )), axis=1)
+        enave = np.array((0.0, sums[0], sums[1]))
+        (
+            state.cdsurf[isurf], state.cysurf[isurf], state.clsurf[isurf],
+            state.cmsurf[0, isurf], state.cmsurf[1, isurf], state.cmsurf[2, isurf],
+            state.cdvsurf[isurf], state.cds_a[isurf], state.cys_a[isurf], state.cls_a[isurf],
+            state.cm_lsrf[0, isurf], state.cm_lsrf[1, isurf], state.cm_lsrf[2, isurf],
+        ) = sums[2:].tolist()
+
+        forces = np.sum(np.stack((
+            *(state.cfstrp[k, js] * scale_sref for k in range(3)),
+            *(cf_l[k] * scale_ssurf for k in range(3)),
+        ), axis=1), axis=0)
+        state.cfsurf[:, isurf] = forces[:3]
+        state.cf_lsrf[:, isurf] = forces[3:]
+
+        s_sref = scale_sref[:, np.newaxis]
+        s_b = scale_cm_b[:, np.newaxis]
+        s_c = scale_cm_c[:, np.newaxis]
+        cfst_u = state.cfst_u[:, js, :numax]
+        cmst_u = state.cmst_u[:, js, :numax]
+        sums_u = np.sum(np.stack((
+            state.cdst_u[js, :numax] * s_sref,
+            state.cyst_u[js, :numax] * s_sref,
+            state.clst_u[js, :numax] * s_sref,
+            cfst_u[0] * s_sref, cfst_u[1] * s_sref, cfst_u[2] * s_sref,
+            cmst_u[0] * s_b, cmst_u[1] * s_c, cmst_u[2] * s_b,
+        ), axis=1), axis=0)
+        state.cds_u[isurf, :numax] = sums_u[0]
+        state.cys_u[isurf, :numax] = sums_u[1]
+        state.cls_u[isurf, :numax] = sums_u[2]
+        state.cfs_u[:, isurf, :numax] = sums_u[3:6]
+        state.cms_u[:, isurf, :numax] = sums_u[6:9]
+        if ncontrol:
+            # Control sums stay one reduction per coefficient: with a single
+            # control the (nj, 1) operands reduce pairwise, not strip by strip,
+            # so grouping them would change the rounding.
+            jsi = np.arange(j0, j0 + nj, dtype=np.intp)
+            state.cds_d[isurf, :ncontrol] = np.sum(state.cdst_d[jsi, :ncontrol] * s_sref, axis=0)
+            state.cys_d[isurf, :ncontrol] = np.sum(state.cyst_d[jsi, :ncontrol] * s_sref, axis=0)
+            state.cls_d[isurf, :ncontrol] = np.sum(state.clst_d[jsi, :ncontrol] * s_sref, axis=0)
+            state.cfs_d[:, isurf, :ncontrol] = np.sum(
+                state.cfst_d[:, jsi, :ncontrol] * scale_sref[np.newaxis, :, np.newaxis], axis=1
+            )
+            state.cms_d[0, isurf, :ncontrol] = np.sum(state.cmst_d[0, jsi, :ncontrol] * s_b, axis=0)
+            state.cms_d[1, isurf, :ncontrol] = np.sum(state.cmst_d[1, jsi, :ncontrol] * s_c, axis=0)
+            state.cms_d[2, isurf, :ncontrol] = np.sum(state.cmst_d[2, jsi, :ncontrol] * s_b, axis=0)
 
         # To define surface CL and CD we need local lift and drag directions
         # Define a "spanwise" vector: cross product of average surface normal with chordline
