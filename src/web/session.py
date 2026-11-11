@@ -773,9 +773,11 @@ def _build_results_extras(solver: AVLSolver) -> dict[str, Any]:
         return [float(value) if math.isfinite(float(value)) else None for value in values]
 
     return {
-        "pb2V": dir_ * float(wrot[0]),
-        "qc2V": float(wrot[1]),
-        "rb2V": dir_ * float(wrot[2]),
+        # wrot holds rates scaled by 2/bref (2/cref for q); undo that for the
+        # non-dimensional pb/2V, qc/2V, rb/2V shown in AVL's totals.
+        "pb2V": dir_ * float(wrot[0]) * 0.5 * float(state.bref),
+        "qc2V": float(wrot[1]) * 0.5 * float(state.cref),
+        "rb2V": dir_ * float(wrot[2]) * 0.5 * float(state.bref),
         "controls": controls,
         "CDi": float(state.cdtot - state.cdvtot),
         "CDp": float(state.cdvtot),
