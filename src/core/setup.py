@@ -314,31 +314,29 @@ def velsum(state: AVLState) -> AVLState:
 
     wc = state.wc_gam[:, :nvor, :nvor]
     wv = state.wv_gam[:, :nvor, :nvor]
-    gam = state.gam[:nvor]
 
-    state.vc[:, :nvor] = np.einsum("kij,j->ki", wc, gam)
-    state.vv[:, :nvor] = np.einsum("kij,j->ki", wv, gam)
-    state.vc_u[:, :nvor, :numax] = np.einsum(
-        "kij,jn->kin", wc, state.gam_u[:nvor, :numax]
-    )
-    state.vv_u[:, :nvor, :numax] = np.einsum(
-        "kij,jn->kin", wv, state.gam_u[:nvor, :numax]
-    )
-
+    # Stack gam, gam_u, gam_d, gam_g as columns so each (3, nvor, nvor)
+    # tensor is read once by one BLAS-backed matmul (einsum does not use BLAS).
+    cols = [state.gam[:nvor, None], state.gam_u[:nvor, :numax]]
     if ncontrol:
-        state.vc_d[:, :nvor, :ncontrol] = np.einsum(
-            "kij,jn->kin", wc, state.gam_d[:nvor, :ncontrol]
-        )
-        state.vv_d[:, :nvor, :ncontrol] = np.einsum(
-            "kij,jn->kin", wv, state.gam_d[:nvor, :ncontrol]
-        )
+        cols.append(state.gam_d[:nvor, :ncontrol])
     if ndesign:
-        state.vc_g[:, :nvor, :ndesign] = np.einsum(
-            "kij,jn->kin", wc, state.gam_g[:nvor, :ndesign]
-        )
-        state.vv_g[:, :nvor, :ndesign] = np.einsum(
-            "kij,jn->kin", wv, state.gam_g[:nvor, :ndesign]
-        )
+        cols.append(state.gam_g[:nvor, :ndesign])
+    rhs = np.hstack(cols)
+    iu = 1 + numax
+    id_ = iu + ncontrol
+
+    for w, v, v_u, v_d, v_g in (
+        (wc, state.vc, state.vc_u, state.vc_d, state.vc_g),
+        (wv, state.vv, state.vv_u, state.vv_d, state.vv_g),
+    ):
+        prod = w @ rhs
+        v[:, :nvor] = prod[:, :, 0]
+        v_u[:, :nvor, :numax] = prod[:, :, 1:iu]
+        if ncontrol:
+            v_d[:, :nvor, :ncontrol] = prod[:, :, iu:id_]
+        if ndesign:
+            v_g[:, :nvor, :ndesign] = prod[:, :, id_:]
 
     wcsrd_u = state.wcsrd_u[:, :nvor, :numax]
     wvsrd_u = state.wvsrd_u[:, :nvor, :numax]
