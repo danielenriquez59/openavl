@@ -109,6 +109,14 @@ def setup(state: AVLState) -> AVLState:
         # Unit solutions from the previous factorisation are stale.
         state.gucalc_cache = None
 
+    # Body source/doublet strengths depend on the moment reference point
+    # (rotation-rate unit flows). AVL clears LSRD when Xref changes; checking
+    # here also covers paths that move xyzref without going through a setter.
+    if state.lsrd and (
+        state.xyzref_srd is None or not np.array_equal(state.xyzref_srd, state.xyzref)
+    ):
+        state.lsrd = False
+
     if not state.lsrd:
         srdset(
             state.betm, state.xyzref, state.iysym,
@@ -126,6 +134,7 @@ def setup(state: AVLState) -> AVLState:
             state.wcsrd_u, state.nvor,
         )
         state.lsrd = True
+        state.xyzref_srd = np.array(state.xyzref, dtype=np.float64, copy=True)
 
     if not state.lvel:
         vvor(

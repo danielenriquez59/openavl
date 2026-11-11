@@ -69,6 +69,8 @@ class AVLState:
     lenc: bool = False
     laic: bool = False
     lsrd: bool = False
+    # Reference point the body source/doublet data (srdset) was built about.
+    xyzref_srd: Any = None
     lvel: bool = False
     lsol: bool = False
     lsen: bool = False

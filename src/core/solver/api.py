@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Callable
 
@@ -248,18 +249,68 @@ class AVLSolver:
             return C.IVTOT + ctrl_idx
         raise KeyError(f"Unknown variable: {name}")
 
+    def _rate_axes(self) -> tuple[float, float, float]:
+        """Return (DIR, cos, sin) of the axes the rate constraints use.
+
+        Matches the Newton residuals in ``exec_solve``: rates are body-axis
+        rates unless ``lsa_rates`` selects stability axes (rotated by alpha).
+        """
+        s = self.state
+        dir_ = -1.0 if s.lnasa_sa else 1.0
+        if s.lsa_rates:
+            return dir_, math.cos(s.alfa), math.sin(s.alfa)
+        return dir_, 1.0, 0.0
+
+    def _constraint_rates(self) -> list[float]:
+        """Return the current (pb/2V, qc/2V, rb/2V) in the convention of the rate constraints.
+
+        Roll and yaw carry AVL's axis sign (DIR) and are in the axes selected by
+        ``lsa_rates`` (body by default); pitch is q·c/2V.
+        """
+        s = self.state
+        dir_, ca, sa = self._rate_axes()
+        wx, wy, wz = (float(w) for w in s.wrot)
+        return [
+            dir_ * (wx * ca + wz * sa) * 0.5 * s.bref,
+            wy * 0.5 * s.cref,
+            dir_ * (wz * ca - wx * sa) * 0.5 * s.bref,
+        ]
+
+    def _set_constraint_rates(self, rates: list[float]) -> None:
+        """Set ``wrot`` from (pb/2V, qc/2V, rb/2V); the inverse of :meth:`_constraint_rates`."""
+        s = self.state
+        dir_, ca, sa = self._rate_axes()
+        p = rates[0] * 2.0 / s.bref
+        r = rates[2] * 2.0 / s.bref
+        s.wrot[0] = dir_ * (p * ca - r * sa)
+        s.wrot[1] = rates[1] * 2.0 / s.cref
+        s.wrot[2] = dir_ * (p * sa + r * ca)
+
     def set_variable(self, name: str, value: float) -> None:
-        """Set a run-case variable (alpha/beta in degrees, controls in degrees)."""
+        """Set a run-case variable directly.
+
+        ``alpha`` and ``beta`` and control deflections are in degrees.
+        ``pb/2V``, ``qc/2V`` and ``rb/2V`` are non-dimensional rates in the same
+        convention as the rate constraints of :meth:`set_constraint` (AVL sign
+        convention; body axes, or stability axes when ``state.lsa_rates`` is
+        set), so a value set here gives the same flow as a constraint of that
+        value. Changing ``alpha`` keeps these rates fixed, so the order of
+        calls does not matter.
+        """
         key = name.strip()
         lower = key.lower()
         if lower in self._VARIABLE_MAP:
             idx = self._VARIABLE_MAP[lower]
             if idx == C.IVALFA:
+                rates = self._constraint_rates()
                 self.state.alfa = float(value) * self.state.dtr
+                self._set_constraint_rates(rates)
             elif idx == C.IVBETA:
                 self.state.beta = float(value) * self.state.dtr
             else:
-                self.state.wrot[idx - C.IVROTX] = float(value)
+                rates = self._constraint_rates()
+                rates[idx - C.IVROTX] = float(value)
+                self._set_constraint_rates(rates)
             return
 
         ctrl_idx = self._resolve_control_index(key)
