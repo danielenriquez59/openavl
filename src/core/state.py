@@ -440,7 +440,7 @@ class AVLState:
             "cmx": 0.0,
             "cmy": 0.0,
             "cmz": 0.0,
-            "cd0": 0.0,
+            "cd0": float(model.header.cdp),
             "xcg": None,
             "ycg": None,
             "zcg": None,

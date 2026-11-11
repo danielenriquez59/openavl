@@ -29,6 +29,7 @@ KEYWORD_PREFIXES = frozenset(
         "ANGL",
         "NOWA",
         "NOLO",
+        "NOAL",
         "NACA",
         "AFIL",
         "BFIL",
@@ -43,6 +44,11 @@ def normalize_airfoil_path(raw_path: str) -> str:
     raw = str(raw_path or "").strip()
     if not raw:
         return ""
+    # Double quotes delimit the name (ainput.f AFIL); text after the closing
+    # quote, such as trailing numbers, is not part of it.
+    match = re.search(r'"([^"]+)"', raw)
+    if match:
+        return match.group(1).strip()
     return re.sub(r'^["\']+|["\']+$', "", raw).strip()
 
 
@@ -115,7 +121,7 @@ def _looks_like_file_path(line: str) -> bool:
 class ControlDef:
     name: str = "CTRL"
     gain: float = 1.0
-    xhinge: float = 0.75
+    xhinge: float = 0.0
     vhinge: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0])
     sgn_dup: float = 1.0
     index: int = 0
@@ -189,6 +195,7 @@ class AVLHeader:
     xref: float = 0.0
     yref: float = 0.0
     zref: float = 0.0
+    cdp: float = 0.0  # optional 6th header line: baseline profile drag (Fortran CDREF0)
 
 
 @dataclass
@@ -203,21 +210,20 @@ class AVLModel:
 
 
 def _parse_control_line(raw: str, read_next_line) -> ControlDef:
-    parts = raw.split()[1:]
+    parts = strip_inline_comment(raw).split()[1:]
     if len(parts) < 2:
         next_line = read_next_line() or ""
-        parts = next_line.strip().split()
+        parts = strip_inline_comment(next_line).split()
     name = parts.pop(0) if parts else "CTRL"
     nums = [float(v) for v in parts if _is_finite_float(v)]
+    # Short-line defaults follow ainput.f: gain 1, xhinge 0, hinge vector 0
+    # unless all three components are given, sgn_dup 1.
+    has_vhinge = len(nums) > 4
     return ControlDef(
         name=name,
         gain=nums[0] if len(nums) > 0 else 1.0,
-        xhinge=nums[1] if len(nums) > 1 else 0.75,
-        vhinge=[
-            nums[2] if len(nums) > 2 else 0.0,
-            nums[3] if len(nums) > 3 else 0.0,
-            nums[4] if len(nums) > 4 else 0.0,
-        ],
+        xhinge=nums[1] if len(nums) > 1 else 0.0,
+        vhinge=nums[2:5] if has_vhinge else [0.0, 0.0, 0.0],
         sgn_dup=nums[5] if len(nums) > 5 else 1.0,
     )
 
@@ -314,6 +320,15 @@ def parse_avl(text: str) -> AVLModel:
     xyz_line = read_value_line()
     if len(xyz_line) >= 3:
         header.xref, header.yref, header.zref = xyz_line[:3]
+    # Optional CDp line: consume it only when it reads as a number, otherwise
+    # leave it for the keyword loop (ainput.f: READ (LINE,*,ERR=8) CDREF0).
+    while index_ref["i"] < len(lines) and _is_comment_line(lines[index_ref["i"]]):
+        index_ref["i"] += 1
+    if index_ref["i"] < len(lines):
+        cdp_tokens = strip_inline_comment(lines[index_ref["i"]]).split()
+        if cdp_tokens and _is_finite_float(cdp_tokens[0]):
+            header.cdp = float(cdp_tokens[0])
+            index_ref["i"] += 1
 
     while index_ref["i"] < len(lines):
         line = next_line()
@@ -410,6 +425,8 @@ def parse_avl(text: str) -> AVLModel:
                 surface.nowake = True
             elif subkey == "NOLO":
                 surface.noload = True
+            elif subkey == "NOAL":
+                surface.lvalbe = False
             elif subkey == "ANGL":
                 nums = parse_numbers(trimmed[4:])
                 vals = nums if nums else read_value_line()

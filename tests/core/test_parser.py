@@ -1,5 +1,6 @@
 """Tests for openavl.parser."""
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -143,6 +144,115 @@ def test_prepare_model_warns_when_airfoil_file_missing(tmp_path: Path):
 
     assert model.surfaces[0].sections[0].airfoil_coords is None
     assert model.surfaces[0].sections[0].airfoil_camber is not None
+
+
+_HEADER_LINES = ["Regression", "0.0", "0 0 0", "1 1 1", "0 0 0"]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [("allegro.avl", 0.020), ("bd.avl", 0.017), ("hers-gp10.avl", 0.0)],
+)
+def test_parse_cdp_header_line(name: str, expected: float):
+    """GEO-03: the optional 6th header line is the baseline profile drag."""
+    model = parse_avl_file(GEOMETRIES_DIR / name)
+    assert model.header.cdp == pytest.approx(expected)
+
+
+def test_absent_cdp_line_does_not_consume_keyword():
+    """GEO-03: with no CDp line the next line is a keyword and must be kept."""
+    text = "\n".join(
+        _HEADER_LINES + ["SURFACE", "Wing", "2 1 1 1", "SECTION", "0 0 0 1 0", "SECTION", "1 1 0 1 0"]
+    )
+    model = parse_avl(text)
+    assert model.header.cdp == 0.0
+    assert len(model.surfaces) == 1
+    assert len(model.surfaces[0].sections) == 2
+
+
+def test_cdp_is_default_cd0_and_option_overrides():
+    """GEO-03: CDp seeds the cd0 run parameter unless cd0= is given."""
+    from openavl import constants as C
+    from openavl.core.state import AVLState
+
+    model = parse_avl_file(GEOMETRIES_DIR / "allegro.avl")
+    prepare_model(model, base_dir=GEOMETRIES_DIR)
+    assert AVLState.from_model(model).parval[C.IPCD0, 0] == pytest.approx(0.020)
+    assert AVLState.from_model(model, cd0=0.005).parval[C.IPCD0, 0] == pytest.approx(0.005)
+
+
+def test_parse_noalbe():
+    """GEO-04: NOALBE clears lvalbe on the three hers-gp10 ground-plane surfaces."""
+    model = parse_avl_file(GEOMETRIES_DIR / "hers-gp10.avl")
+    assert [s.lvalbe for s in model.surfaces] == [True, False, False, False]
+
+    text = "\n".join(
+        _HEADER_LINES + ["SURFACE", "Wing", "2 1 1 1", "NOALBE", "SECTION", "0 0 0 1 0", "SECTION", "1 1 0 1 0"]
+    )
+    surf = parse_avl(text).surfaces[0]
+    assert surf.lvalbe is False
+    assert len(surf.sections) == 2
+
+
+def test_control_keyword_with_trailing_comment_reads_next_line():
+    """GEO-07: a comment after CONTROL must not become the control name."""
+    text = "\n".join(
+        _HEADER_LINES
+        + [
+            "SURFACE",
+            "Wing",
+            "2 1 1 1",
+            "SECTION",
+            "0 0 0 1 0",
+            "CONTROL    ! name gain xhinge",
+            "flap  1.0  0.7  0 1 0  -1",
+            "SECTION",
+            "1 1 0 1 0",
+            "CONTROL",
+            "flap",
+        ]
+    )
+    model = parse_avl(text)
+    ctrl = model.surfaces[0].sections[0].controls[0]
+    assert ctrl.name == "flap"
+    assert ctrl.gain == pytest.approx(1.0)
+    assert ctrl.xhinge == pytest.approx(0.7)
+    assert ctrl.vhinge == pytest.approx([0.0, 1.0, 0.0])
+    assert ctrl.sgn_dup == pytest.approx(-1.0)
+    # Fortran short-line defaults: gain 1, xhinge 0, vhinge 0, sgn_dup 1.
+    short = model.surfaces[0].sections[1].controls[0]
+    assert (short.name, short.gain, short.xhinge, short.vhinge, short.sgn_dup) == (
+        "flap",
+        1.0,
+        0.0,
+        [0.0, 0.0, 0.0],
+        1.0,
+    )
+
+
+def test_control_partial_hinge_vector_defaults_to_zero():
+    """GEO-07: fewer than three hinge-vector components means all zero (ainput.f)."""
+    text = "\n".join(
+        _HEADER_LINES
+        + ["SURFACE", "Wing", "2 1 1 1", "SECTION", "0 0 0 1 0", "CONTROL", "elev 2.0 0.6 0 1"]
+    )
+    ctrl = parse_avl(text).surfaces[0].sections[0].controls[0]
+    assert ctrl.gain == pytest.approx(2.0)
+    assert ctrl.xhinge == pytest.approx(0.6)
+    assert ctrl.vhinge == [0.0, 0.0, 0.0]
+
+
+def test_quoted_afile_name_drops_trailing_numbers():
+    """GEO-17: ``"ag38.dat" 0 1`` names ag38.dat and resolves the file."""
+    model = parse_avl_file(GEOMETRIES_DIR / "al.avl")
+    sec = model.surfaces[0].sections[3]
+    assert sec.airfoil_file == "ag38.dat"
+    assert "ag38.dat" in model.airfoil_files
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        prepare_model(model, base_dir=GEOMETRIES_DIR)
+    assert sec.airfoil_coords
 
 
 def test_prepare_model_warns_when_airfoil_file_has_no_base_dir():
