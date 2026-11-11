@@ -16,6 +16,37 @@ _EPS = (2.0e-5)
 _DMAX = (1.5708)
 
 
+def check_constraints(state: Any, ir: int = 0) -> None:
+    """Raise ValueError if two variables are driven by the same constraint.
+
+    The trim system is then singular. Fortran AVL refuses to run such a case
+    ("Cannot impose a constraint more than once", aoper.f).
+    """
+    icon = [int(ic) for ic in state.icon[: state.nvtot, ir]]
+    by_constraint: dict[int, list[int]] = {}
+    for iv, ic in enumerate(icon):
+        by_constraint.setdefault(ic, []).append(iv)
+    clashes = {ic: ivs for ic, ivs in by_constraint.items() if len(ivs) > 1}
+    if not clashes:
+        return
+
+    var_names = list(getattr(state, "var_names", None) or [])
+    con_names = list(getattr(state, "con_names", None) or [])
+
+    def _name(names: list[str], index: int, prefix: str) -> str:
+        return names[index] if index < len(names) else f"{prefix}{index}"
+
+    details = "; ".join(
+        f"{_name(con_names, ic, 'constraint ')} is imposed by "
+        + ", ".join(_name(var_names, iv, "variable ") for iv in ivs)
+        for ic, ivs in sorted(clashes.items())
+    )
+    raise ValueError(
+        "Cannot impose a constraint more than once: "
+        f"{details}. Give each variable a different constraint."
+    )
+
+
 class SolveCancelledError(RuntimeError):
     """Raised when a caller cooperatively cancels an active solve."""
 
@@ -41,6 +72,7 @@ def exec_solve(
     used by older AVL builds is omitted.
     """
     _ = info
+    check_constraints(state, ir)
     dir_ = (-1.0 if state.lnasa_sa else 1.0)
     _raise_if_cancelled(cancel_check)
 

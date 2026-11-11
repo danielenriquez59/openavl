@@ -10,6 +10,12 @@ import numpy as np
 from openavl import constants as C
 from openavl.fileio.parser import AVLModel
 
+# Keyword options AVLState.from_model reads (its run_defaults keys plus unitl).
+RUN_CASE_OPTIONS = frozenset({
+    "vel", "rho", "gravity", "cl", "bank", "alpha", "beta",
+    "cmx", "cmy", "cmz", "cd0", "xcg", "ycg", "zcg", "unitl",
+})
+
 
 @dataclass
 class AVLState:
@@ -372,6 +378,7 @@ class AVLState:
             nlnode += n_nodes * copies
         nlmax = max(1, nlnode)
 
+        # Keep in sync with RUN_CASE_OPTIONS below.
         run_defaults = {
             "vel": 0.0,
             "rho": 1.225,

@@ -154,26 +154,37 @@ class AVLSolver:
         debug:
             Enable verbose diagnostic output from the solver core.
         **state_options:
-            Initial run-case values forwarded to :class:`~openavl.core.state.AVLState`.
-            Common keywords include ``alpha`` and ``beta`` (degrees),
-            ``vel`` (airspeed), ``rho`` (density), ``gravity``, ``cl``,
-            ``cd0``, ``bank``, and ``xcg``/``ycg``/``zcg``. Any name
-            recognized by :meth:`set_parameter` (for example ``mach``) is
-            reapplied after a mass file is loaded.
+            Initial run-case values. Accepted keywords are ``alpha`` and
+            ``beta`` (degrees), ``vel`` (airspeed), ``cmx``/``cmy``/``cmz``
+            (moment targets), ``unitl``, and any name recognized by
+            :meth:`set_parameter` (for example ``mach``, ``velocity``,
+            ``rho``, ``gravity``, ``cl``, ``cd0``, ``bank``,
+            ``xcg``/``ycg``/``zcg``, ``mass``). Parameters are applied
+            whether or not a mass file is given, and again after the mass
+            file is loaded so they take precedence over it. ``base_dir``
+            sets the directory used to resolve airfoil and body files
+            (default: the geometry file's directory).
 
         Raises
         ------
         FileNotFoundError
             If ``mass_file`` is given but cannot be read or is empty.
+        TypeError
+            If an option is not recognized, rather than silently ignoring it.
+        ValueError
+            If an option value is out of range (for example ``mach >= 1``).
         """
         resolved_mass_file = Path(mass_file) if mass_file else None
+        base_dir = state_options.pop("base_dir", None)
         if isinstance(geo, Aircraft):
-            base_dir = state_options.pop("base_dir", None)
             geo_file = None
             model = geo.to_avl_model(base_dir=base_dir)
         else:
             geo_file = Path(geo)
-            model = prepare_model(parse_avl_file(geo_file), base_dir=geo_file.parent)
+            model = prepare_model(
+                parse_avl_file(geo_file),
+                base_dir=Path(base_dir) if base_dir is not None else geo_file.parent,
+            )
         _initialization.initialize_solver(
             self,
             model,
