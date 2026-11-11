@@ -4,27 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from openavl.aero.aic import cross, dot, srdset, vsrd, vvor, _vvor_vortex_pre
+from openavl.aero.aic import srdset, vsrd, vvor, _vvor_vortex_pre
 from openavl.core.state import AVLState
 from openavl.math.linalg import baksub, ludcmp
-
-
-def u_comp(state: AVLState, iu: int) -> float:
-    """Return the iu-th unit velocity component (0-based iu in 0..5)."""
-    if iu < 3:
-        return float(state.vinf[iu])
-    return float(state.wrot[iu - 3])
 
 
 def _unit_velocity(state: AVLState) -> np.ndarray:
     """Return the active unit-velocity vector [vinf, wrot] of length numax."""
     # Shared by gamsum/velsum so body-source weighting uses one u vector.
     return np.concatenate((state.vinf, state.wrot))[: state.numax]
-
-
-def _solve_aic_column(state: AVLState, col: np.ndarray) -> None:
-    """Solve AICN * x = col using pre-factored LU (in-place on col[:nvor])."""
-    baksub(state.aicn, state.nvor, state.iapiv, col[: state.nvor])
 
 
 def _solve_aic_columns(state: AVLState, cols: np.ndarray) -> None:
@@ -45,8 +33,25 @@ def _mungea(state: AVLState) -> None:
             state.aicn[ii, ii] = 1.0
 
 
+def check_mach(mach: float) -> float:
+    """Return ``mach`` as a float, or raise if the solver cannot use it.
+
+    The Prandtl-Glauert factor sqrt(1 - M^2) is only real for M < 1. AVL
+    itself does not check, and the Python port used to fail later with a NaN
+    and a ZeroDivisionError inside the AIC kernel.
+    """
+    value = float(mach)
+    if not np.isfinite(value) or value < 0.0 or value >= 1.0:
+        raise ValueError(
+            f"Mach number must satisfy 0 <= M < 1 (Prandtl-Glauert compressibility "
+            f"correction is subsonic only); got {mach!r}."
+        )
+    return value
+
+
 def setup(state: AVLState) -> AVLState:
     """Build AIC matrix, body influence matrices, and velocity kernels."""
+    check_mach(state.mach)
     state.amach = state.mach
     state.betm = (np.sqrt((1.0 - (state.amach * state.amach))))
 
@@ -70,6 +75,10 @@ def setup(state: AVLState) -> AVLState:
         )
 
         nv = state.nvor
+        if not state.aicn[:nv, :nv].flags.f_contiguous:
+            # Column-major storage lets ludcmp factor in place and baksub hand
+            # the factors to LAPACK without an n x n copy per solve.
+            state.aicn = np.zeros((nv, nv), dtype=np.float64, order="F")
         state.aicn[:nv, :nv] = np.einsum(
             "kij,ki->ij",
             state.wc_gam[:, :nv, :nv],
@@ -97,6 +106,8 @@ def setup(state: AVLState) -> AVLState:
         _mungea(state)
         ludcmp(state.aicn, state.nvor, state.iapiv, state.work)
         state.laic = True
+        # Unit solutions from the previous factorisation are stale.
+        state.gucalc_cache = None
 
     if not state.lsrd:
         srdset(
@@ -139,9 +150,53 @@ def setup(state: AVLState) -> AVLState:
     return state
 
 
-def gucalc(state: AVLState) -> AVLState:
-    """Compute unit-circulation sensitivities GAM_U_* via AIC back-substitution."""
+def _gucalc_inputs(state: AVLState) -> tuple[np.ndarray, ...]:
+    """Every array gucalc reads besides the factored AIC (aicn/iapiv)."""
     nvor = state.nvor
+    return (
+        state.xyzref,
+        state.rc[:, :nvor],
+        state.enc[:, :nvor],
+        state.enc_d[:, :nvor, : state.ncontrol],
+        state.wcsrd_u[:, :nvor, :6],
+        state.lvnc[:nvor],
+        state.lvalbe[:nvor],
+    )
+
+
+def _gucalc_cache_valid(state: AVLState) -> bool:
+    """True when the cached unit solutions were built from the current inputs.
+
+    The factored AIC is too large to compare, so it is keyed by identity and by
+    setup() clearing the cache whenever it refactors (laic False, Mach change).
+    Everything else (xyzref, which exec_solve may change without clearing any
+    flag; body influence wcsrd_u; geometry normals; V.n flags) is compared by value.
+    """
+    cache = state.gucalc_cache
+    if cache is None or cache["aicn"] is not state.aicn:
+        return False
+    if cache["dims"] != (state.nvor, state.ncontrol):
+        return False
+    return all(
+        np.array_equal(old, new)
+        for old, new in zip(cache["inputs"], _gucalc_inputs(state))
+    )
+
+
+def gucalc(state: AVLState) -> AVLState:
+    """Compute unit-circulation sensitivities GAM_U_* via AIC back-substitution.
+
+    The unit solutions do not depend on alpha/beta/rates/deflections, so they
+    are cached across runs; see ``_gucalc_cache_valid``.
+    """
+    nvor = state.nvor
+    if _gucalc_cache_valid(state):
+        gam_u_0, gam_u_d = state.gucalc_cache["out"]
+        state.gam_u_0[:nvor, :6] = gam_u_0
+        state.gam_u_d[:nvor, :6, : state.ncontrol] = gam_u_d
+        return state
+    inputs = tuple(np.array(a, copy=True) for a in _gucalc_inputs(state))
+
     lvnc = state.lvnc[:nvor]
     lvalbe = state.lvalbe[:nvor]
     enc = state.enc[:, :nvor]
@@ -158,17 +213,9 @@ def gucalc(state: AVLState) -> AVLState:
                 state.enc_d[:, :nvor, : state.ncontrol],
                 vunit,
             )
-        if state.ndesign:
-            state.gam_u_g[:nvor, iu, : state.ndesign] = -np.einsum(
-                "kin,ki->in",
-                state.enc_g[:, :nvor, : state.ndesign],
-                vunit,
-            )
         state.gam_u_0[inactive, iu] = 0.0
         if state.ncontrol:
             state.gam_u_d[inactive, iu, : state.ncontrol] = 0.0
-        if state.ndesign:
-            state.gam_u_g[inactive, iu, : state.ndesign] = 0.0
 
     rrot = state.rc[:, :nvor] - state.xyzref[:, np.newaxis]
     for iu in range(3, 6):
@@ -182,17 +229,9 @@ def gucalc(state: AVLState) -> AVLState:
                 state.enc_d[:, :nvor, : state.ncontrol],
                 vunit,
             )
-        if state.ndesign:
-            state.gam_u_g[:nvor, iu, : state.ndesign] = -np.einsum(
-                "kin,ki->in",
-                state.enc_g[:, :nvor, : state.ndesign],
-                vunit,
-            )
         state.gam_u_0[inactive, iu] = 0.0
         if state.ncontrol:
             state.gam_u_d[inactive, iu, : state.ncontrol] = 0.0
-        if state.ndesign:
-            state.gam_u_g[inactive, iu, : state.ndesign] = 0.0
 
     # Batch all unit-mode RHS columns through the factored AIC matrix.
     _solve_aic_columns(state, state.gam_u_0[: state.nvor, :6])
@@ -204,15 +243,16 @@ def gucalc(state: AVLState) -> AVLState:
         state.gam_u_d[: state.nvor, :6, : state.ncontrol] = rhs_d.reshape(
             state.nvor, 6, state.ncontrol
         )
-    if state.ndesign:
-        rhs_g = state.gam_u_g[: state.nvor, :6, : state.ndesign].reshape(
-            state.nvor, 6 * state.ndesign
-        )
-        _solve_aic_columns(state, rhs_g)
-        state.gam_u_g[: state.nvor, :6, : state.ndesign] = rhs_g.reshape(
-            state.nvor, 6, state.ndesign
-        )
 
+    state.gucalc_cache = {
+        "aicn": state.aicn,
+        "dims": (nvor, state.ncontrol),
+        "inputs": inputs,
+        "out": (
+            state.gam_u_0[:nvor, :6].copy(),
+            state.gam_u_d[:nvor, :6, : state.ncontrol].copy(),
+        ),
+    }
     return state
 
 
@@ -265,10 +305,9 @@ def gdcalc(
 
 def gamsum(state: AVLState) -> AVLState:
     """Sum unit-circulation sensitivities into total GAM and body strengths."""
-    # Vectorized over active nvor/control/design extents (replaces per-vortex loops).
+    # Vectorized over active nvor/control extents (replaces per-vortex loops).
     nvor = state.nvor
     ncontrol = state.ncontrol
-    ndesign = state.ndesign
     nlnode = state.nlnode
     numax = state.numax
     u = _unit_velocity(state)
@@ -280,23 +319,11 @@ def gamsum(state: AVLState) -> AVLState:
             state.gam_u_d[:nvor, :numax, :ncontrol],
             state.delcon[:ncontrol],
         )
-    if ndesign:
-        state.gam_u[:nvor, :numax] += np.einsum(
-            "ijn,n->ij",
-            state.gam_u_g[:nvor, :numax, :ndesign],
-            state.deldes[:ndesign],
-        )
 
     if ncontrol:
         state.gam_d[:nvor, :ncontrol] = np.einsum(
             "ijn,j->in",
             state.gam_u_d[:nvor, :numax, :ncontrol],
-            u,
-        )
-    if ndesign:
-        state.gam_g[:nvor, :ndesign] = np.einsum(
-            "ijn,j->in",
-            state.gam_u_g[:nvor, :numax, :ndesign],
             u,
         )
 
@@ -318,39 +345,31 @@ def velsum(state: AVLState) -> AVLState:
     # Matrix contractions over wc_gam/wv_gam replace O(nvor^2) Python loops.
     nvor = state.nvor
     ncontrol = state.ncontrol
-    ndesign = state.ndesign
     numax = state.numax
     ndmax = state.ndmax
-    ngmax = state.ngmax
     u = _unit_velocity(state)
 
     wc = state.wc_gam[:, :nvor, :nvor]
     wv = state.wv_gam[:, :nvor, :nvor]
-    gam = state.gam[:nvor]
 
-    state.vc[:, :nvor] = np.einsum("kij,j->ki", wc, gam)
-    state.vv[:, :nvor] = np.einsum("kij,j->ki", wv, gam)
-    state.vc_u[:, :nvor, :numax] = np.einsum(
-        "kij,jn->kin", wc, state.gam_u[:nvor, :numax]
-    )
-    state.vv_u[:, :nvor, :numax] = np.einsum(
-        "kij,jn->kin", wv, state.gam_u[:nvor, :numax]
-    )
-
+    # Stack gam, gam_u, gam_d as columns so each (3, nvor, nvor)
+    # tensor is read once by one BLAS-backed matmul (einsum does not use BLAS).
+    cols = [state.gam[:nvor, None], state.gam_u[:nvor, :numax]]
     if ncontrol:
-        state.vc_d[:, :nvor, :ncontrol] = np.einsum(
-            "kij,jn->kin", wc, state.gam_d[:nvor, :ncontrol]
-        )
-        state.vv_d[:, :nvor, :ncontrol] = np.einsum(
-            "kij,jn->kin", wv, state.gam_d[:nvor, :ncontrol]
-        )
-    if ndesign:
-        state.vc_g[:, :nvor, :ndesign] = np.einsum(
-            "kij,jn->kin", wc, state.gam_g[:nvor, :ndesign]
-        )
-        state.vv_g[:, :nvor, :ndesign] = np.einsum(
-            "kij,jn->kin", wv, state.gam_g[:nvor, :ndesign]
-        )
+        cols.append(state.gam_d[:nvor, :ncontrol])
+    rhs = np.hstack(cols)
+    iu = 1 + numax
+    id_ = iu + ncontrol
+
+    for w, v, v_u, v_d in (
+        (wc, state.vc, state.vc_u, state.vc_d),
+        (wv, state.vv, state.vv_u, state.vv_d),
+    ):
+        prod = w @ rhs
+        v[:, :nvor] = prod[:, :, 0]
+        v_u[:, :nvor, :numax] = prod[:, :, 1:iu]
+        if ncontrol:
+            v_d[:, :nvor, :ncontrol] = prod[:, :, iu:id_]
 
     wcsrd_u = state.wcsrd_u[:, :nvor, :numax]
     wvsrd_u = state.wvsrd_u[:, :nvor, :numax]
@@ -362,12 +381,9 @@ def velsum(state: AVLState) -> AVLState:
     state.wc_u[:, :nvor, :numax] = state.vc_u[:, :nvor, :numax] + wcsrd_u
     state.wv_u[:, :nvor, :numax] = state.vv_u[:, :nvor, :numax] + wvsrd_u
 
-    # Preserve Fortran layout: copy derivative slices out to ndmax/ngmax buffers.
+    # Preserve Fortran layout: copy derivative slices out to ndmax buffers.
     if ndmax:
         state.wc_d[:, :nvor, :ndmax] = state.vc_d[:, :nvor, :ndmax]
         state.wv_d[:, :nvor, :ndmax] = state.vv_d[:, :nvor, :ndmax]
-    if ngmax:
-        state.wc_g[:, :nvor, :ngmax] = state.vc_g[:, :nvor, :ngmax]
-        state.wv_g[:, :nvor, :ngmax] = state.vv_g[:, :nvor, :ngmax]
 
     return state

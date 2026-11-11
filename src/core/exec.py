@@ -36,7 +36,7 @@ def exec_solve(
     """Run the AVL solve loop: setup, unit solutions, forces, optional Newton trim.
 
     On trim non-convergence or abort, leaves ``parval`` / ``lsen`` unchanged
-    (matching AVL) and emits a warning. ``gamsum`` rebuilds control/design
+    (matching AVL) and emits a warning. ``gamsum`` rebuilds control
     circulation from unit solutions, so the redundant ``gdcalc`` pre-pass
     used by older AVL builds is omitted.
     """
@@ -79,7 +79,7 @@ def exec_solve(
     gucalc(state)
     _raise_if_cancelled(cancel_check)
     vinfab(state)
-    # gamsum rebuilds gam_d/gam_g from gam_u_d/gam_u_g; skip redundant gdcalc.
+    # gamsum rebuilds gam_d from gam_u_d; skip redundant gdcalc.
     gamsum(state)
     velsum(state)
     aero(state)

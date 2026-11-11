@@ -369,7 +369,7 @@ def snapshot_topology(state: Any, model: Any) -> GeometryTopology:
             camber = sections[indices[j]].airfoil_camber
             if camber is not None and camber.x.size > 1:
                 slopec_sections[i, side] = akima(camber.x, camber.s, xcp[i])[0]
-                slopev_sections[i, side] = akima(camber.x, camber.s, xvr[i])[1]
+                slopev_sections[i, side] = akima(camber.x, camber.s, xvr[i])[0]
 
     return GeometryTopology(
         nstrip=nstrip,

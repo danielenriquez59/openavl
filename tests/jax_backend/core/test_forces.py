@@ -133,7 +133,6 @@ def test_tpforc_jax_matches_numpy_fixture():
         nvor = 2
         nsurf = 1
         ncontrol = 0
-        ndesign = 0
         numax = NUMAX
         sref = np.float64(1.5)
         bref = np.float64(2.0)
@@ -153,7 +152,6 @@ def test_tpforc_jax_matches_numpy_fixture():
                 for n in range(NUMAX):
                     self.gam_u[i, n] = np.float64(0.05 * (i + n + 1))
             self.gam_d = np.zeros((3, 1), dtype=np.float64)
-            self.gam_g = np.zeros((3, 1), dtype=np.float64)
             self.rv1 = np.zeros((3, 3), dtype=np.float64)
             self.rv2 = np.zeros((3, 3), dtype=np.float64)
             self.rc = np.zeros((3, 3), dtype=np.float64)

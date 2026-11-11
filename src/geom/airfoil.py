@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -169,24 +170,45 @@ def _getcam(x_in: np.ndarray, y_in: np.ndarray, nc: int, normalize: bool) -> tup
     return xc, yc, tc
 
 
-def build_naca_slope(code: str = "0000", samples: int = 60) -> AirfoilCamber:
-    """Build NACA 4-digit camber, slope, and thickness tables."""
-    digits = str(code or "").zfill(4)
-    m = int(digits[0]) / 100.0
-    p = int(digits[1]) / 10.0
-    t_frac = int(digits[2:4]) / 100.0
-    xs = np.linspace(0.0, 1.0, samples + 1, dtype=np.float64)
+def build_naca_slope(
+    code: str = "0000",
+    samples: int = 50,
+    xfmin: float = 0.0,
+    xfmax: float = 1.0,
+) -> AirfoilCamber:
+    """Build NACA 4-digit camber, slope, and thickness tables (ainput.f NACA).
+
+    ``samples`` points (AVL: ``MIN(50,IBX)`` = 50) are spaced uniformly over
+    the airfoil x/c range ``[xfmin, xfmax]``; the x table is then normalised to
+    0..1 so that portion of the airfoil spans the whole chord.
+    """
+    # Integer split exactly as ainput.f, which reads the designator as one integer.
+    ides = int(str(code or "0").strip() or "0")
+    icam = ides // 1000
+    ipos = (ides - 1000 * icam) // 100
+    ithk = ides - 1000 * icam - 100 * ipos
+    if ides > 9999:
+        warnings.warn(
+            f"NACA {code}: AVL supports only 4-digit designators; it reads this as "
+            f"camber {icam}%, position {ipos / 10.0:g}, thickness {ithk}% (as AVL does).",
+            UserWarning,
+            stacklevel=2,
+        )
+    m = icam / 100.0
+    p = ipos / 10.0
+    t_frac = ithk / 100.0
+    n = int(samples)
+    xs = np.array([xfmin + (xfmax - xfmin) * i / (n - 1) for i in range(n)], dtype=np.float64)
     slope = np.zeros_like(xs)
     camber = np.zeros_like(xs)
     thick = np.zeros_like(xs)
     for i, xf in enumerate(xs):
-        if m != 0.0 and p != 0.0:
-            if xf < p:
-                slope[i] = m * 2.0 * (p - xf) / (p * p)
-                camber[i] = m * (2.0 * p * xf - 1.0) * xf / (p * p)
-            elif xf > p:
-                slope[i] = m * 2.0 * (p - xf) / ((1.0 - p) ** 2)
-                camber[i] = m * ((1.0 - 2.0 * p) + (2.0 * p - xf) * xf) / ((1.0 - p) ** 2)
+        if xf < p:
+            slope[i] = m * 2.0 * (p - xf) / (p * p)
+            camber[i] = m * (2.0 * p * xf - 1.0) * xf / (p * p)
+        elif xf > p:
+            slope[i] = m * 2.0 * (p - xf) / ((1.0 - p) ** 2)
+            camber[i] = m * ((1.0 - 2.0 * p) + (2.0 * p - xf) * xf) / ((1.0 - p) ** 2)
         thick[i] = (
             0.29690 * np.sqrt(max(xf, 0.0))
             - 0.12600 * xf
@@ -194,11 +216,21 @@ def build_naca_slope(code: str = "0000", samples: int = 60) -> AirfoilCamber:
             + 0.28430 * xf**3
             - 0.10150 * xf**4
         ) * t_frac * 10.0
-    return AirfoilCamber(x=xs, s=slope, c=camber, t=thick)
+    return AirfoilCamber(x=nrmliz(xs), s=slope, c=camber, t=thick)
 
 
-def build_camber_slope(coords: list[list[float]], samples: int = 50) -> AirfoilCamber | None:
-    """Build camber slope from coordinate pairs (upper/lower airfoil outline)."""
+def build_camber_slope(
+    coords: list[list[float]],
+    samples: int = 50,
+    xfmin: float = 0.0,
+    xfmax: float = 1.0,
+) -> AirfoilCamber | None:
+    """Build camber slope from coordinate pairs (upper/lower airfoil outline).
+
+    Follows ainput.f AIRF/AFIL: GETCAM at ``samples`` points (AVL always uses
+    50), tables sampled uniformly over the x/c range ``[xfmin, xfmax]``, then
+    the x table normalised to 0..1 so that portion spans the whole chord.
+    """
     if not coords:
         return None
     x = np.array([c[0] for c in coords], dtype=np.float64)
@@ -207,14 +239,16 @@ def build_camber_slope(coords: list[list[float]], samples: int = 50) -> AirfoilC
     if n < 2:
         return None
 
-    n_in = min(samples, n)
+    n_in = int(samples)
     xc, yc, tc = _getcam(x, y, n_in, normalize=True)
-    xs = np.linspace(xc[0], xc[-1], n_in, dtype=np.float64)
+    xs = np.array(
+        [xc[0] + (xfmin + (xfmax - xfmin) * i / (n_in - 1)) * (xc[-1] - xc[0]) for i in range(n_in)],
+        dtype=np.float64,
+    )
     slope = np.array([akima(xc, yc, float(xi))[1] for xi in xs], dtype=np.float64)
     camber = np.array([akima(xc, yc, float(xi))[0] for xi in xs], dtype=np.float64)
     thick = np.array([akima(xc, tc, float(xi))[0] for xi in xs], dtype=np.float64)
-    nrmliz(xs)
-    return AirfoilCamber(x=xs, s=slope, c=camber, t=thick)
+    return AirfoilCamber(x=nrmliz(xs), s=slope, c=camber, t=thick)
 
 
 def parse_body_coords(text: str) -> list[list[float]]:

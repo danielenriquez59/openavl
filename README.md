@@ -2,7 +2,7 @@
 
 A numerically faithful Python port of [AVL (Athena Vortex Lattice)](https://web.mit.edu/drela/Public/web/avl/), Mark Drela's widely-used Fortran aerodynamics solver. OpenAVL reproduces AVL's results to machine precision using pure Python and NumPy, making it scriptable, testable, and composable with the broader scientific Python ecosystem.
 
-[Try the OpenAVL app here](https://openavl.onrender.com/) (the app is very slow due to server cpu limitations)
+[Try the OpenAVL app here](https://openavl-production.up.railway.app/)
 
 ## What It Does
 

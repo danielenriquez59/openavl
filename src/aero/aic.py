@@ -321,10 +321,8 @@ def srdvelc_batch(
 
     r1sq = r10 * r10 + r11 * r11 + r12 * r12
     r2sq = r20 * r20 + r21 * r21 + r22 * r22
-
     r1sqeps = r1sq + rcsq
     r2sqeps = r2sq + rcsq
-
     r1eps = np.sqrt(r1sqeps)
     r2eps = np.sqrt(r2sqeps)
 
@@ -333,12 +331,12 @@ def srdvelc_batch(
     rxr1 = r12 * r20 - r10 * r22
     rxr2 = r10 * r21 - r11 * r20
 
-    xdx = rxr0 * rxr0 + rxr1 * rxr1 + rxr2 * rxr2
-    all_ = r1sq + r2sq - 2.0 * rdr
-    den = rcsq * all_ + xdx
+    cross_sq = rxr0 * rxr0 + rxr1 * rxr1 + rxr2 * rxr2
+    seg_len_sq = r1sq + r2sq - 2.0 * rdr
+    denom = rcsq * seg_len_sq + cross_sq
 
-    ai1 = ((rdr + rcsq) / r1eps - r2eps) / den
-    ai2 = ((rdr + rcsq) / r2eps - r1eps) / den
+    ai1 = ((rdr + rcsq) / r1eps - r2eps) / denom
+    ai2 = ((rdr + rcsq) / r2eps - r1eps) / denom
 
     if uvws is None:
         uvws = np.zeros((3, n), dtype=np.float64)
@@ -369,8 +367,8 @@ def srdvelc_batch(
 
         rrt = (2.0 * r1k * (r2sq - rdr)) + (2.0 * r2k * (r1sq - rdr))
 
-        aj1 = (rr1 - (ai1 * rrt)) / den
-        aj2 = (rr2 - (ai2 * rrt)) / den
+        aj1 = (rr1 - (ai1 * rrt)) / denom
+        aj2 = (rr2 - (ai2 * rrt)) / denom
 
         for j in range(3):
             uvwd[k, j] = (-(aj1 * r1[j]) - (aj2 * r2[j]))
@@ -437,12 +435,12 @@ def srdvelc(
     rxr1 = r12 * r20 - r10 * r22
     rxr2 = r10 * r21 - r11 * r20
 
-    xdx = rxr0 * rxr0 + rxr1 * rxr1 + rxr2 * rxr2
-    all_ = r1sq + r2sq - 2.0 * rdr
-    den = rcsq * all_ + xdx
+    cross_sq = rxr0 * rxr0 + rxr1 * rxr1 + rxr2 * rxr2
+    seg_len_sq = r1sq + r2sq - 2.0 * rdr
+    denom = rcsq * seg_len_sq + cross_sq
 
-    ai1 = ((rdr + rcsq) / r1eps - r2eps) / den
-    ai2 = ((rdr + rcsq) / r2eps - r1eps) / den
+    ai1 = ((rdr + rcsq) / r1eps - r2eps) / denom
+    ai2 = ((rdr + rcsq) / r2eps - r1eps) / denom
 
     r1 = (r10, r11, r12)
     r2 = (r20, r21, r22)
@@ -468,8 +466,8 @@ def srdvelc(
 
         rrt = (2.0 * r1k * (r2sq - rdr)) + (2.0 * r2k * (r1sq - rdr))
 
-        aj1 = (rr1 - (ai1 * rrt)) / den
-        aj2 = (rr2 - (ai2 * rrt)) / den
+        aj1 = (rr1 - (ai1 * rrt)) / denom
+        aj2 = (rr2 - (ai2 * rrt)) / denom
 
         for j in range(3):
             uvwd[k, j] = (-(aj1 * r1[j]) - (aj2 * r2[j]))

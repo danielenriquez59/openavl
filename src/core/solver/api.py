@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from openavl import constants as C
 
+from openavl.core.setup import check_mach
 from openavl.fileio.mass import load_mass
 from openavl.fileio.parser import AVLModel, parse_avl_file, prepare_model
 from openavl.geometry.aircraft import Aircraft
@@ -290,6 +291,8 @@ class AVLSolver:
         if key not in self._PARAMETER_MAP:
             raise KeyError(f"Unknown parameter: {name}")
         idx = self._PARAMETER_MAP[key]
+        if idx == C.IPMACH:
+            check_mach(value)
         stored_value = -float(value) if idx in {C.IPIXY, C.IPIYZ, C.IPIZX} else float(value)
         self.state.parval[idx, 0] = stored_value
         if idx == C.IPMACH:

@@ -27,7 +27,6 @@ class _TpforcState:
     nvor = 2
     nsurf = 1
     ncontrol = 0
-    ndesign = 0
     numax = C.NUMAX
     sref = np.float64(1.5)
     bref = np.float64(2.0)
@@ -41,7 +40,6 @@ class _TpforcState:
             for n in range(C.NUMAX):
                 self.gam_u[i, n] = np.float64(0.05 * (i + n + 1))
         self.gam_d = np.zeros((3, 1), dtype=np.float64)
-        self.gam_g = np.zeros((3, 1), dtype=np.float64)
         self.rv1 = np.zeros((3, 3), dtype=np.float64)
         self.rv2 = np.zeros((3, 3), dtype=np.float64)
         self.rc = np.zeros((3, 3), dtype=np.float64)
@@ -73,15 +71,14 @@ def test_inactive_trefftz_source_matches_removed_source(image_y, image_z, inacti
     # Inactive sensitivities need not be zero either.
     gamma_u = np.array([[0.2, -0.3], [4.0, 5.0]])
     gamma_d = np.array([[0.4], [6.0]])
-    gamma_g = np.array([[-0.5], [7.0]])
 
     def evaluate(count):
         return _accumulate_trefftz_induced(
             np.array([0.25]), np.array([0.4]),
             y1[:count], z1[:count], y2[:count], z2[:count],
-            gamma[:count], gamma_u[:count], gamma_d[:count], gamma_g[:count],
+            gamma[:count], gamma_u[:count], gamma_d[:count],
             np.zeros((1, count)), np.array([True, False])[:count],
-            1.0 / (2.0 * np.pi), 1, 1, 0.0, 0.0, 2, 1, 1,
+            1.0 / (2.0 * np.pi), 1, 1, 0.0, 0.0, 2, 1,
         )
 
     # Raise on invalid arithmetic, rather than merely accepting masked output.

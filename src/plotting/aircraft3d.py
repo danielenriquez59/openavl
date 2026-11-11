@@ -119,7 +119,7 @@ def _transform_section_point(
 def _mirror_point(point: np.ndarray, yduplicate: float) -> np.ndarray:
     """Reflect a point about the AVL ``YDUPLICATE`` plane."""
     mirrored = point.copy()
-    mirrored[1] = -mirrored[1] + yduplicate
+    mirrored[1] = 2.0 * yduplicate - mirrored[1]
     return mirrored
 
 

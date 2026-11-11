@@ -151,8 +151,8 @@ class Wing:
             Spanwise panel spacing from this section to the next. Overrides the
             wing-level default for this span segment only.
         claf:
-            Fraction of chord over which the airfoil shape is applied (AVL
-            ``AFIL`` first parameter; ``1.0`` = full chord).
+            Section lift-curve slope scaling factor, dCL/da relative to
+            2*pi (AVL ``CLAF`` keyword; ``1.0`` = thin-airfoil value).
 
         Returns
         -------

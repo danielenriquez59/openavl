@@ -61,7 +61,8 @@ def test_build_camber_slope_from_coords(fixtures_dir):
     samples = 10
     cam = build_camber_slope(coords, samples=samples)
     assert cam is not None
-    expected = min(samples, len(coords))
+    # ainput.f always samples NIN = MIN(50, IBX) camber points, independent of the input point count.
+    expected = samples
     assert cam.x.size == expected
     assert cam.s.size == expected
     assert cam.c.size == expected
