@@ -27,6 +27,17 @@ def _validate_aircraft(aircraft: Aircraft) -> None:
     if aircraft.bref <= 0:
         raise ValueError(f"bref must be > 0, got {aircraft.bref}")
 
+    # ainput.f YDUP stops on YDUPLICATE 0.0 with IYSYM /= 0 (surfaces and
+    # bodies): the image would duplicate the symmetry image.
+    if aircraft.iysym != 0:
+        for item in (*aircraft.wings, *aircraft.bodies):
+            if item.yduplicate is not None and float(item.yduplicate) == 0.0:
+                raise ValueError(
+                    f"Redundant y-symmetry specifications on {item.name!r}: "
+                    f"iysym={aircraft.iysym} and yduplicate=0.0 (symmetric=True does this). "
+                    "Can use one or the other, but not both."
+                )
+
     for wing in aircraft.wings:
         if len(wing.sections) < 2:
             raise ValueError(
@@ -98,8 +109,9 @@ def to_avl_model(aircraft: Aircraft, base_dir: str | Path | None = None) -> AVLM
     header = AVLHeader(
         title=aircraft.name,
         mach=aircraft.mach,
-        iysym=aircraft.iysym,
-        izsym=aircraft.izsym,
+        # Clamped to -1/0/+1 as ainput.f does.
+        iysym=(aircraft.iysym > 0) - (aircraft.iysym < 0),
+        izsym=(aircraft.izsym > 0) - (aircraft.izsym < 0),
         zsym=aircraft.zsym,
         sref=aircraft.sref,
         cref=aircraft.cref,

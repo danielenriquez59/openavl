@@ -16,17 +16,20 @@ from openavl.geom.airfoil import (
 )
 from openavl.fileio.mass import MassProperties
 
+# Every keyword ainput.f dispatches on (first four characters).
 KEYWORD_PREFIXES = frozenset(
     {
         "SURF",
         "SECT",
         "BODY",
+        "BSEC",
         "COMP",
         "INDE",
         "YDUP",
         "SCAL",
         "TRAN",
         "ANGL",
+        "AINC",
         "NOWA",
         "NOLO",
         "NOAL",
@@ -36,6 +39,9 @@ KEYWORD_PREFIXES = frozenset(
         "AIRF",
         "CONT",
         "CDCL",
+        "CLAF",
+        "DESI",
+        "CORE",
     }
 )
 
@@ -237,39 +243,62 @@ def _parse_cdcl_line(trimmed_line: str, read_next_line) -> list[float] | None:
     vals = inline if len(inline) >= 6 else parse_numbers(read_next_line() or "")
     if len(vals) < 6:
         return None
-    try:
-        from openavl.geometry.cdcl_polar import CdclPolar
+    cl = [vals[0], vals[2], vals[4]]
+    cd = [vals[1], vals[3], vals[5]]
+    # ainput.f CDCL: no validation, only this ordering (strict comparisons,
+    # so ties keep the first point as min and the first strictly larger as max).
+    lmax = 0
+    lmin = 0
+    for k in (1, 2):
+        if cl[k] > cl[lmax]:
+            lmax = k
+        if cl[k] < cl[lmin]:
+            lmin = k
+    lmid = 3 - (lmin + lmax)
+    if lmin == lmax:
+        # All three CLs equal: Fortran's LMID = 6-(LMIN+LMAX) indexes past the
+        # end of CLX, so there is no defined AVL result; keep the input order.
+        lmin, lmid, lmax = 0, 1, 2
+    if len({cl[0], cl[1], cl[2]}) < 3 or min(cd) < 0.0:
+        warnings.warn(
+            f"CDCL polar {vals[:6]} has repeated CL values or a negative CD; "
+            "kept as given, as AVL does.",
+            UserWarning,
+            stacklevel=3,
+        )
+    return [cl[lmin], cd[lmin], cl[lmid], cd[lmid], cl[lmax], cd[lmax]]
 
-        return CdclPolar.from_points(
-            (vals[0], vals[1]),
-            (vals[2], vals[3]),
-            (vals[4], vals[5]),
-        ).as_list()
-    except ValueError:
+
+def _leading_xy_pair(line: str) -> list[float] | None:
+    """Return the first two numbers of a coordinate line, or None.
+
+    Mirrors ainput.f AIRF: GETFLT reads at most two values and the block ends
+    at the first line on which two leading numbers cannot be read.
+    """
+    tokens = strip_inline_comment(line).replace(",", " ").split()
+    if len(tokens) < 2 or not (_is_finite_float(tokens[0]) and _is_finite_float(tokens[1])):
         return None
+    return [float(tokens[0]), float(tokens[1])]
 
 
 def _parse_airfoil_block(lines: list[str], index_ref: dict[str, int]) -> list[list[float]]:
+    """Read inline AIRFOIL coordinates.
+
+    ainput.f reads lines with RDLINE (which skips blank and comment lines)
+    until one does not give two numbers; that line is left unconsumed and is
+    re-dispatched as a keyword ("GO TO 11").
+    """
     coords: list[list[float]] = []
     while index_ref["i"] < len(lines):
-        raw = lines[index_ref["i"]]
-        if not raw:
+        trimmed = lines[index_ref["i"]].strip()
+        if not trimmed or _is_comment_line(trimmed):
             index_ref["i"] += 1
             continue
-        trimmed = raw.strip()
-        if not trimmed:
-            index_ref["i"] += 1
-            if coords:
-                break
-            continue
-        if _is_keyword_line(trimmed):
+        pair = _leading_xy_pair(trimmed)
+        if pair is None:
             break
         index_ref["i"] += 1
-        if _is_comment_line(trimmed):
-            continue
-        nums = parse_numbers(trimmed)
-        if len(nums) >= 2:
-            coords.append([nums[0], nums[1]])
+        coords.append(pair)
     return coords
 
 
@@ -288,6 +317,26 @@ def _parse_xf_limits(trimmed_line: str) -> tuple[float, float]:
 def _is_partial_range(xfmin: float, xfmax: float) -> bool:
     """ainput.f sets LRANGE false only for XFMIN > 0.01 or XFMAX < 0.99."""
     return xfmin > 0.01 or xfmax < 0.99
+
+
+def _sign_flag(value: float) -> int:
+    """Clamp a symmetry flag to -1/0/+1 (ainput.f IYSYM/IZSYM)."""
+    flag = int(value)
+    return (flag > 0) - (flag < 0)
+
+
+def _count(value: float) -> int:
+    """Panel count as ainput.f reads it: ``INT( RINPUT + 0.001 )``."""
+    return int(value + 0.001)
+
+
+def _check_redundant_ysym(iysym: int, ydupl: float) -> None:
+    """ainput.f YDUP: stop on YDUPLICATE 0.0 when IYSYM /= 0 (surface or body)."""
+    if iysym != 0 and ydupl == 0.0:
+        raise ValueError(
+            "Redundant y-symmetry specifications: IYSYM /= 0 and YDUPLICATE 0.0. "
+            "Can use one or the other, but not both."
+        )
 
 
 def _parse_naca_designator(line: str) -> str | None:
@@ -323,6 +372,7 @@ def parse_avl(text: str) -> AVLModel:
     body_files: list[str] = []
     index_ref = {"i": 0}
     header = AVLHeader()
+    warned_design = False
 
     def next_line() -> str | None:
         while index_ref["i"] < len(lines) and _is_comment_line(lines[index_ref["i"]]):
@@ -345,12 +395,14 @@ def parse_avl(text: str) -> AVLModel:
         header.mach = mach_line[0]
     sym_line = read_value_line()
     if len(sym_line) >= 3:
-        header.iysym = int(sym_line[0])
-        header.izsym = int(sym_line[1])
+        # ainput.f clamps both flags to -1/0/+1.
+        header.iysym = _sign_flag(sym_line[0])
+        header.izsym = _sign_flag(sym_line[1])
         header.zsym = sym_line[2]
     ref_line = read_value_line()
     if len(ref_line) >= 3:
-        header.sref, header.cref, header.bref = ref_line[:3]
+        # ainput.f: IF(SREF .LE. 0.) SREF = 1.  (likewise CREF, BREF)
+        header.sref, header.cref, header.bref = (v if v > 0.0 else 1.0 for v in ref_line[:3])
     xyz_line = read_value_line()
     if len(xyz_line) >= 3:
         header.xref, header.yref, header.zref = xyz_line[:3]
@@ -394,6 +446,8 @@ def parse_avl(text: str) -> AVLModel:
                     nums = parse_numbers(trimmed[4:])
                     vals = nums if nums else read_value_line()
                     body.yduplicate = vals[0] if vals else body.yduplicate
+                    if vals:
+                        _check_redundant_ysym(header.iysym, vals[0])
                 elif subkey == "SCAL":
                     nums = parse_numbers(trimmed[4:])
                     vals = nums if nums else read_value_line()
@@ -420,12 +474,16 @@ def parse_avl(text: str) -> AVLModel:
 
         surface_name = next_line() or "Surface"
         spacing = read_value_line()
+        # ainput.f SURF: Nspan/Sspace are used only when both are present
+        # (NINPUT >= 4); otherwise NVS = 0, SSPACE = 0 and the per-section
+        # values set the spanwise panelling.
+        has_span = len(spacing) >= 4
         surface = SurfaceDef(
             name=surface_name,
-            n_chord=int(spacing[0]) if spacing else 0,
+            n_chord=_count(spacing[0]) if spacing else 0,
             c_space=spacing[1] if len(spacing) > 1 else 1.0,
-            n_span=int(spacing[2]) if len(spacing) > 2 else 0,
-            s_space=spacing[3] if len(spacing) > 3 else 1.0,
+            n_span=_count(spacing[2]) if has_span else 0,
+            s_space=spacing[3] if has_span else 0.0,
         )
         current_section: SectionDef | None = None
         while index_ref["i"] < len(lines):
@@ -447,6 +505,8 @@ def parse_avl(text: str) -> AVLModel:
                 nums = parse_numbers(trimmed[4:])
                 vals = nums if nums else read_value_line()
                 surface.yduplicate = vals[0] if vals else surface.yduplicate
+                if vals:
+                    _check_redundant_ysym(header.iysym, vals[0])
             elif subkey == "SCAL":
                 nums = parse_numbers(trimmed[4:])
                 vals = nums if nums else read_value_line()
@@ -463,7 +523,7 @@ def parse_avl(text: str) -> AVLModel:
                 surface.noload = True
             elif subkey == "NOAL":
                 surface.lvalbe = False
-            elif subkey == "ANGL":
+            elif subkey in ("ANGL", "AINC"):
                 nums = parse_numbers(trimmed[4:])
                 vals = nums if nums else read_value_line()
                 if vals:
@@ -472,6 +532,9 @@ def parse_avl(text: str) -> AVLModel:
                 nums = parse_numbers(trimmed[4:])
                 vals = nums if len(nums) >= 5 else read_value_line()
                 if len(vals) >= 5:
+                    # ainput.f SECT: NSPANS/SSPACES only when all 7 values are
+                    # present (NINPUT >= 7), else both 0.
+                    has_span = len(vals) >= 7
                     current_section = SectionDef(
                         xle=vals[0],
                         yle=vals[1],
@@ -479,8 +542,8 @@ def parse_avl(text: str) -> AVLModel:
                         chord=vals[3],
                         ainc=vals[4],
                         ainc_deg=vals[4],
-                        n_span=int(vals[5]) if len(vals) > 5 else 0,
-                        s_space=vals[6] if len(vals) > 6 else 1.0,
+                        n_span=_count(vals[5]) if has_span else 0,
+                        s_space=vals[6] if has_span else 0.0,
                         cdcl=list(surface.cdcl) if surface.cdcl else None,
                     )
                     surface.sections.append(current_section)
@@ -505,6 +568,10 @@ def parse_avl(text: str) -> AVLModel:
                 else:
                     code_line = next_line() or ""
                 current_section.naca = _parse_naca_designator(code_line)
+                # NACA/AIRFOIL/AFILE each overwrite the section camber in
+                # ainput.f, so the last one given wins.
+                current_section.airfoil_file = None
+                current_section.airfoil_coords = None
                 current_section.xfmin, current_section.xfmax = xfmin, xfmax
                 if _is_partial_range(xfmin, xfmax):
                     surface.lrange = False
@@ -544,6 +611,8 @@ def parse_avl(text: str) -> AVLModel:
                         index_ref["i"] += 1
                         break
                 current_section.airfoil_file = normalized or None
+                current_section.naca = None  # last airfoil keyword wins
+                current_section.airfoil_coords = None
                 if normalized:
                     inline_airfoils.append(normalized)
                 # x/c limits come only from the AFIL keyword line (ainput.f).
@@ -559,10 +628,25 @@ def parse_avl(text: str) -> AVLModel:
                 if _is_partial_range(xfmin, xfmax):
                     surface.lrange = False
                 current_section.airfoil_coords = _parse_airfoil_block(lines, index_ref)
+                current_section.naca = None  # last airfoil keyword wins
+                current_section.airfoil_file = None
             elif subkey == "CONT":
                 if not current_section:
                     continue
                 current_section.controls.append(_parse_control_line(trimmed, next_line))
+            elif subkey == "DESI":
+                # ainput.f DESI: the next line is "DName Wdes". Design variables
+                # are not supported, so the line is consumed and ignored.
+                if not current_section:
+                    continue
+                next_line()
+                if not warned_design:
+                    warned_design = True
+                    warnings.warn(
+                        "DESIGN variables are not supported by OpenAVL and are ignored.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
         surfaces.append(surface)
 
     return AVLModel(
@@ -585,9 +669,16 @@ def prepare_model(model: AVLModel, base_dir: str | Path | None = None) -> AVLMod
     control_map: dict[str, int] = {}
     base = Path(base_dir) if base_dir else None
 
-    for surf_idx, surf in enumerate(model.surfaces):
+    # ainput.f sets LNCOMP(ISURF) = ISURF when the SURFACE starts, where ISURF
+    # counts solver surfaces: a YDUPLICATE image (SDUPL) takes the next number,
+    # and shares its parent's component (amake.f: LNCOMP(NNI) = LNCOMP(NN)).
+    solver_isurf = 0
+    for surf in model.surfaces:
+        solver_isurf += 1
         if surf.component == 0:
-            surf.component = surf_idx + 1
+            surf.component = solver_isurf
+        if surf.yduplicate is not None:
+            solver_isurf += 1
         if surf.imags == 0:
             surf.imags = 1
 
