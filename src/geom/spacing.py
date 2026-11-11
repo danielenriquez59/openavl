@@ -30,38 +30,42 @@ def akima(x: np.ndarray, y: np.ndarray, xx: float) -> tuple[float, float]:
         else:
             itop = i
 
+    # i is the lower point of the interval [x[i], x[i+1]] (Fortran I = i + 1).
+    # d[2] (Fortran D(3)) is the slope on that interval.
     i = ibot
     d = np.zeros(5, dtype=np.float64)
     for j in range(5):
-        k = i + (j - 2)
-        if 0 < k < n:
+        k = i + j - 1
+        if 1 <= k <= n - 1:
             d[j] = (y[k] - y[k - 1]) / (x[k] - x[k - 1])
 
+    # Synthesize missing end slopes by quadratic extrapolation.
     if n == 2:
         d[1] = d[2]
-    if i + 2 >= n:
+    if i + 3 > n:
         d[3] = 2.0 * d[2] - d[1]
-    if i + 3 >= n:
+    if i + 4 > n:
         d[4] = 2.0 * d[3] - d[2]
-    if i - 1 < 0:
+    if i < 1:
         d[1] = 2.0 * d[2] - d[3]
-    if i - 2 < 0:
+    if i < 2:
         d[0] = 2.0 * d[1] - d[2]
 
+    # Slopes t[0], t[1] at the lower and upper interval points.
     t = np.zeros(2, dtype=np.float64)
     for j in range(2):
-        a = abs(d[j + 2] - d[j + 1])
-        b = abs(d[j] - d[j - 1])
+        a = abs(d[j + 3] - d[j + 2])
+        b = abs(d[j + 1] - d[j])
         if a + b == 0.0:
             a = b = 1.0
         t[j] = (a * d[j + 1] + b * d[j + 2]) / (a + b)
 
-    if xx == x[i]:
-        return float(y[i]), float(t[1])
+    if xx == x[i + 1]:
+        return float(y[i + 1]), float(t[1])
 
-    xint = x[i] - x[i - 1]
-    xdif = xx - x[i - 1]
-    p0 = y[i - 1]
+    xint = x[i + 1] - x[i]
+    xdif = xx - x[i]
+    p0 = y[i]
     p1 = t[0]
     p2 = (3.0 * d[2] - 2.0 * t[0] - t[1]) / xint
     p3 = (t[0] + t[1] - 2.0 * d[2]) / (xint * xint)
