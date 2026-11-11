@@ -862,6 +862,225 @@
         min-height: 360px;
       }
     }
+
+    /* ---- Help modal ---- */
+    .help-button {
+      flex-shrink: 0;
+      color: var(--ink-muted);
+    }
+
+    .help-button-icon {
+      display: inline-grid;
+      place-items: center;
+      width: 1.05rem;
+      height: 1.05rem;
+      border: 1px solid currentColor;
+      border-radius: 50%;
+      font-size: 0.7rem;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    #help-dialog {
+      width: min(920px, calc(100vw - 32px));
+      max-height: calc(100vh - 48px);
+      padding: 0;
+      border: 1px solid var(--edge-light);
+      border-radius: var(--radius);
+      background: var(--panel);
+      color: var(--ink);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+    }
+
+    #help-dialog[open] {
+      display: flex;
+      flex-direction: column;
+    }
+
+    #help-dialog::backdrop {
+      background: rgba(5, 8, 12, 0.66);
+    }
+
+    .help-head,
+    .help-tabs {
+      flex-shrink: 0;
+    }
+
+    .help-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 0.85rem 1rem 0.5rem;
+    }
+
+    .help-head h2 {
+      margin: 0;
+      font-size: 1rem;
+      font-weight: 600;
+    }
+
+    .help-close {
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      font-size: 1.1rem;
+      line-height: 1;
+    }
+
+    .help-tabs {
+      display: flex;
+      gap: 0.25rem;
+      padding: 0 1rem;
+      border-bottom: 1px solid var(--edge-light);
+      overflow-x: auto;
+    }
+
+    .help-tabs [role="tab"] {
+      border: none;
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
+      background: transparent;
+      color: var(--ink-muted);
+      padding: 0.5rem 0.75rem;
+      white-space: nowrap;
+    }
+
+    .help-tabs [role="tab"]:hover {
+      color: var(--ink);
+    }
+
+    .help-tabs [role="tab"][aria-selected="true"] {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    .help-tabs [role="tab"]:focus-visible,
+    .help-close:focus-visible,
+    .help-button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .help-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 0.25rem 1rem 1.25rem;
+      font-size: 0.84rem;
+      line-height: 1.5;
+    }
+
+    .help-body h3 {
+      margin: 1.2rem 0 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink-muted);
+    }
+
+    .help-body p {
+      margin: 0.4rem 0;
+      max-width: 70ch;
+      color: var(--ink-muted);
+    }
+
+    .help-note {
+      margin-top: 0.9rem;
+      padding: 0.6rem 0.75rem;
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      background: var(--panel-raised);
+    }
+
+    .help-note p {
+      color: var(--ink);
+    }
+
+    .help-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .help-table th,
+    .help-table td {
+      padding: 0.4rem 0.6rem 0.4rem 0;
+      border-bottom: 1px solid var(--edge);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .help-table th {
+      font-size: 0.72rem;
+      font-weight: 600;
+      color: var(--ink-muted);
+    }
+
+    .help-table td:first-child {
+      white-space: nowrap;
+      color: var(--ink);
+    }
+
+    .help-table td:last-child {
+      color: var(--ink-muted);
+    }
+
+    .eq {
+      font-family: "Cambria Math", "STIX Two Math", "Latin Modern Math", "Times New Roman", serif;
+      font-size: 0.98rem;
+      white-space: nowrap;
+      color: var(--ink);
+    }
+
+    .eq i {
+      font-style: italic;
+    }
+
+    .unit-tag {
+      display: inline-block;
+      padding: 0 0.4rem;
+      border-radius: 999px;
+      background: rgba(127, 179, 255, 0.12);
+      color: var(--accent);
+      font-size: 0.72rem;
+      white-space: nowrap;
+    }
+
+    .unit-tag.none {
+      background: rgba(111, 207, 151, 0.12);
+      color: var(--good);
+    }
+
+    @media (max-width: 640px) {
+      .help-button {
+        padding: 0.42rem;
+      }
+
+      .help-button .help-button-label {
+        display: none;
+      }
+
+      .help-table thead {
+        display: none;
+      }
+
+      .help-table tr {
+        display: block;
+        padding: 0.45rem 0;
+        border-bottom: 1px solid var(--edge);
+      }
+
+      .help-table td {
+        display: block;
+        padding: 0.1rem 0;
+        border: none;
+      }
+
+      .eq {
+        white-space: normal;
+      }
+    }
   </style>
 </head>
 <body>
@@ -875,6 +1094,17 @@
       <button type="button" id="btn-stop-solve">Stop</button>
       <div class="header-right">
         <div id="error-banner" role="alert"></div>
+        <button
+          type="button"
+          id="btn-help"
+          class="help-button"
+          aria-haspopup="dialog"
+          aria-controls="help-dialog"
+          title="Equations, units and sign conventions"
+        >
+          <span class="help-button-icon" aria-hidden="true">?</span>
+          <span class="help-button-label">Help</span>
+        </button>
         <a
           class="github-link"
           href="https://github.com/danielenriquez59/openavl"
@@ -1200,6 +1430,142 @@
     </div>
   </div>
 
+  <dialog id="help-dialog" aria-labelledby="help-title">
+    <div class="help-head">
+      <h2 id="help-title">Help</h2>
+      <button type="button" class="help-close" id="btn-help-close" aria-label="Close help">×</button>
+    </div>
+
+    <div class="help-tabs" role="tablist" aria-label="Help topics">
+      <button type="button" role="tab" id="help-tab-equations" aria-controls="help-panel-equations" aria-selected="true">Equations &amp; units</button>
+      <button type="button" role="tab" id="help-tab-axes" aria-controls="help-panel-axes" aria-selected="false" tabindex="-1">Axes &amp; signs</button>
+    </div>
+
+    <div class="help-body">
+      <!-- Equations & units -->
+      <section role="tabpanel" id="help-panel-equations" aria-labelledby="help-tab-equations" tabindex="0">
+        <div class="help-note">
+          <p>OpenAVL has no built-in unit system. Enter every dimensional value in one consistent set, for example SI (m, kg, s): velocity in L/T, density in M/L³, gravity in L/T², mass in M, inertia in M·L². Geometry lengths are in the units of the .avl file; a mass file's <code>Lunit</code> converts them to the mass-file length unit for dimensional results. Here L, M and T stand for your length, mass and time units.</p>
+        </div>
+
+        <h3>Reference values and flight condition</h3>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Dynamic pressure</td><td><span class="eq"><i>q</i> = ½ <i>ρ V</i>²</span></td><td><span class="unit-tag">M/(L·T²)</span></td></tr>
+            <tr><td>Sref, Cref, Bref</td><td>Reference area, chord and span from the .avl header</td><td><span class="unit-tag">L², L, L</span></td></tr>
+            <tr><td>Aspect ratio</td><td><span class="eq">AR = <i>B</i><sub>ref</sub>² / <i>S</i><sub>ref</sub></span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Mach number</td><td><span class="eq"><i>M</i> = <i>V</i> / <i>a</i></span>, Prandtl–Glauert factor <span class="eq">√(1 − <i>M</i>²)</span>. Valid for 0 ≤ <i>M</i> &lt; 1.</td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>α, β</td><td>Angle of attack and sideslip</td><td><span class="unit-tag">deg</span></td></tr>
+            <tr><td>Moment reference</td><td>All moments and derivatives are taken about the CG (Xcg, Ycg, Zcg)</td><td><span class="unit-tag">L</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Force and moment coefficients</h3>
+        <p>Total Forces and Surface Forces panels. Lower-case cl, cm, cn in Total Forces are the moment coefficients.</p>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Lift, drag, side force</td><td><span class="eq"><i>C<sub>L</sub></i> = <i>L</i> / (<i>q S</i><sub>ref</sub>),&nbsp; <i>C<sub>D</sub></i> = <i>D</i> / (<i>q S</i><sub>ref</sub>),&nbsp; <i>C<sub>Y</sub></i> = <i>Y</i> / (<i>q S</i><sub>ref</sub>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Roll moment</td><td><span class="eq"><i>C<sub>l</sub></i> = ℓ / (<i>q S</i><sub>ref</sub> <i>B</i><sub>ref</sub>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Pitch moment</td><td><span class="eq"><i>C<sub>m</sub></i> = <i>M</i> / (<i>q S</i><sub>ref</sub> <i>C</i><sub>ref</sub>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Yaw moment</td><td><span class="eq"><i>C<sub>n</sub></i> = <i>N</i> / (<i>q S</i><sub>ref</sub> <i>B</i><sub>ref</sub>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Drag breakdown</td><td><span class="eq"><i>C<sub>D</sub></i> = CDi + CDp</span>. CDp is profile drag: CD0 plus any CDCL polars. CDi is the rest.</td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Span efficiency e</td><td><span class="eq"><i>e</i> = (<i>C<sub>L</sub></i>² + <i>C<sub>Y</sub></i>²) / (π AR <i>C<sub>Di</sub></i>)</span>, using Trefftz-plane (far-field) values</td><td><span class="unit-tag none">none</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Non-dimensional rates</h3>
+        <p>pb/2V, qc/2V and rb/2V in Total Forces, Constraints and the derivative tables. <i>p, q, r</i> are body rates in rad/T.</p>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Roll rate</td><td><span class="eq"><i>p̂</i> = <i>p B</i><sub>ref</sub> / (2<i>V</i>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Pitch rate</td><td><span class="eq"><i>q̂</i> = <i>q C</i><sub>ref</sub> / (2<i>V</i>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Yaw rate</td><td><span class="eq"><i>r̂</i> = <i>r B</i><sub>ref</sub> / (2<i>V</i>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Derivatives</h3>
+        <p>The 1/rad – 1/deg selector on Stability Derivatives applies to every derivative panel: <span class="eq">(1/deg) = (1/rad) × π/180</span>. It changes only the angle derivatives; rate derivatives are already non-dimensional.</p>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Angle derivatives (α, β columns)</td><td><span class="eq"><i>C</i><sub><i>X</i>α</sub> = ∂<i>C<sub>X</sub></i> / ∂α,&nbsp; <i>C</i><sub><i>X</i>β</sub> = ∂<i>C<sub>X</sub></i> / ∂β</span></td><td><span class="unit-tag">1/rad or 1/deg</span></td></tr>
+            <tr><td>Rate derivatives (p, q, r columns)</td><td><span class="eq"><i>C<sub>Xp</sub></i> = ∂<i>C<sub>X</sub></i> / ∂<i>p̂</i>,&nbsp; <i>C<sub>Xq</sub></i> = ∂<i>C<sub>X</sub></i> / ∂<i>q̂</i>,&nbsp; <i>C<sub>Xr</sub></i> = ∂<i>C<sub>X</sub></i> / ∂<i>r̂</i></span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Body-axis u, v, w rows</td><td><span class="eq">∂<i>C</i> / ∂(<i>u/V</i>), ∂<i>C</i> / ∂(<i>v/V</i>), ∂<i>C</i> / ∂(<i>w/V</i>)</span>. <i>v/V</i> ≈ β and <i>w/V</i> ≈ α, so the v and w rows follow the unit selector.</td><td><span class="unit-tag none">none</span> u; <span class="unit-tag">1/rad or 1/deg</span> v, w</td></tr>
+            <tr><td>Control derivatives</td><td><span class="eq">∂<i>C</i> / ∂δ</span> for each control deflection δ</td><td><span class="unit-tag">1/rad or 1/deg</span></td></tr>
+            <tr><td>Control deflections</td><td>Trimmed δ shown under Total Forces</td><td><span class="unit-tag">deg</span></td></tr>
+            <tr><td>Neutral point Xnp</td><td><span class="eq"><i>X</i><sub>np</sub> = <i>X</i><sub>cg</sub> − (<i>C<sub>m</sub></i><sub>α</sub> / <i>C<sub>L</sub></i><sub>α</sub>) <i>C</i><sub>ref</sub></span></td><td><span class="unit-tag">L (.avl units)</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Dimensional outputs</h3>
+        <p>These use <i>ρ</i>, <i>V</i>, mass and inertia, with Sref, Cref and Bref scaled by <code>Lunit</code>.</p>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Forces and moments</td><td><span class="eq"><b>F</b> = <i>q S</i><sub>ref</sub> <b>C<sub>F</sub></b>,&nbsp; ℓ = <i>q S</i><sub>ref</sub> <i>B</i><sub>ref</sub> <i>C<sub>l</sub></i>,&nbsp; <i>M</i> = <i>q S</i><sub>ref</sub> <i>C</i><sub>ref</sub> <i>C<sub>m</sub></i>,&nbsp; <i>N</i> = <i>q S</i><sub>ref</sub> <i>B</i><sub>ref</sub> <i>C<sub>n</sub></i></span></td><td><span class="unit-tag">M·L/T², M·L²/T²</span></td></tr>
+            <tr><td>ax, ay, az</td><td><span class="eq"><b>a</b> = <b>F</b> / <i>m</i></span>, aerodynamic force only, body axes</td><td><span class="unit-tag">L/T²</span></td></tr>
+            <tr><td>pdot, qdot, rdot</td><td><span class="eq"><b>I</b> <b>ω̇</b> = <b>M</b> − <b>ω</b> × (<b>I ω</b>)</span>, body axes</td><td><span class="unit-tag">rad/T²</span></td></tr>
+            <tr><td>Hinge moment coefficient</td><td><span class="eq"><i>C<sub>h</sub></i> = <i>H</i> / (<i>q S</i><sub>ref</sub> <i>C</i><sub>ref</sub>)</span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Hinge moment</td><td><span class="eq"><i>H</i> = <i>C<sub>h</sub> q S</i><sub>ref</sub> <i>C</i><sub>ref</sub></span>. Shown only when <i>ρ</i> and <i>V</i> are not both 1.</td><td><span class="unit-tag">M·L²/T²</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Eigenmodes</h3>
+        <p>Eigenanalysis panel and plot. Needs dimensional <i>ρ</i>, <i>V</i>, <i>g</i>, mass and inertia.</p>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Eigenvalue (Real, Imag)</td><td><span class="eq">λ = σ + <i>i</i>ω</span></td><td><span class="unit-tag">1/T</span></td></tr>
+            <tr><td>Frequency</td><td><span class="eq"><i>f</i> = |ω| / (2π)</span></td><td><span class="unit-tag">Hz when T = s</span></td></tr>
+            <tr><td>Period</td><td><span class="eq"><i>T</i> = 1 / <i>f</i></span></td><td><span class="unit-tag">T</span></td></tr>
+            <tr><td>Time to half amplitude T½</td><td><span class="eq"><i>t</i><sub>½</sub> = ln 2 / |σ|</span>, decaying modes (σ &lt; 0) only</td><td><span class="unit-tag">T</span></td></tr>
+          </tbody>
+        </table>
+
+        <h3>Plots and 3D viewer</h3>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Definition</th><th>Units</th></tr></thead>
+          <tbody>
+            <tr><td>Trefftz: cl</td><td>Strip lift coefficient, <span class="eq"><i>c<sub>l</sub></i> = <i>L′</i> / (<i>q c</i>)</span>, with <i>L′</i> lift per unit span and <i>c</i> the local chord</td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Trefftz: cl⊥</td><td><span class="eq"><i>c</i><sub><i>l</i>⊥</sub> = <i>c<sub>l</sub></i> (<i>V</i> / <i>V</i><sub>⊥</sub>)²</span>, with <i>V</i><sub>⊥</sub> the velocity normal to the strip's spanwise axis (sweep-corrected)</td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Trefftz: cl c / cref</td><td>Span loading, <span class="eq"><i>c<sub>l</sub> c</i> / <i>C</i><sub>ref</sub></span></td><td><span class="unit-tag none">none</span></td></tr>
+            <tr><td>Trefftz: αi</td><td>Induced angle in the Trefftz plane</td><td><span class="unit-tag">rad</span></td></tr>
+            <tr><td>Viewer: ΔCp</td><td><span class="eq">Δ<i>C<sub>p</sub></i> = Δ<i>p</i> / <i>q</i></span>, the pressure jump across each panel (lifting load)</td><td><span class="unit-tag none">none</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- Axes & signs -->
+      <section role="tabpanel" id="help-panel-axes" aria-labelledby="help-tab-axes" tabindex="0" hidden>
+        <h3>Axis systems</h3>
+        <table class="help-table">
+          <thead><tr><th>System</th><th>Directions</th><th>Used for</th></tr></thead>
+          <tbody>
+            <tr><td>Geometry axes</td><td>X aft (downstream), Y right, Z up</td><td>Coordinates in the .avl file, CG location, Xnp, the 3D viewer and the Trefftz span axis y</td></tr>
+            <tr><td>Body axes</td><td>X forward, Y right, Z down. The X and Z components of geometry-axis values change sign.</td><td>Total Forces moments (cl, cm, cn), rates, accelerations, Body Axis Derivatives</td></tr>
+            <tr><td>Stability axes</td><td>Body axes rotated by α about Y, so X lies along the freestream projected on the symmetry plane</td><td>CL, CD, Stability Derivatives, Control Surface Derivatives (Stability)</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Positive directions</h3>
+        <table class="help-table">
+          <thead><tr><th>Quantity</th><th>Positive when</th></tr></thead>
+          <tbody>
+            <tr><td>α</td><td>Freestream comes from below (nose up relative to the flow)</td></tr>
+            <tr><td>β</td><td>Freestream comes from the pilot's right</td></tr>
+            <tr><td>p, Cl</td><td>Right wing down</td></tr>
+            <tr><td>q, Cm</td><td>Nose up</td></tr>
+            <tr><td>r, Cn</td><td>Nose right</td></tr>
+            <tr><td>Control deflection δ</td><td>Right-handed rotation about the hinge vector given in the .avl CONTROL line</td></tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
+  </dialog>
+
   <script type="importmap">
   {
     "imports": {
@@ -1209,5 +1575,6 @@
   }
   </script>
   <script type="module" src="./main.js"></script>
+  <script type="module" src="./help.js"></script>
 </body>
 </html>
