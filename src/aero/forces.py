@@ -1511,6 +1511,15 @@ def aero(state: Any) -> Any:
         state.cftot_u[l, l] = state.cftot_u[l, l] + state.cdref * vmag
     for iu in range(3):
         state.cdtot_u[iu] = state.cdtot_u[iu] + state.cdref * (2.0 * state.vinf[iu])
+        # Deliberate departure from AVL: aero.f adds CDREF*VINF(2)*VMAG to
+        # CYTOT but omits the matching CYTOT_U term, leaving CY_b short by
+        # CDREF. Differentiate it here the same way as CFTOT_U below.
+        state.cytot_u[iu] = (
+            state.cytot_u[iu]
+            + state.cdref * (state.vinf[1] * state.vinf[iu]) / vmag
+        )
+        if iu == 1:
+            state.cytot_u[iu] = state.cytot_u[iu] + state.cdref * vmag
         for l in range(3):
             state.cftot_u[l, iu] = (
                 state.cftot_u[l, iu]
