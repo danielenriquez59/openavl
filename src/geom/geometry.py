@@ -63,7 +63,7 @@ def makesurf(state, isurf: int, surf: SurfaceDef) -> None:
             tasec.append(np.array([], dtype=np.float64))
 
     # CPOML requires full-chord airfoil definitions on every section.
-    state.lrange[isurf] = all(sec.claf >= 0.99 for sec in surf.sections)
+    state.lrange[isurf] = surf.lrange and not any(sec.xfmin > 0.01 or sec.xfmax < 0.99 for sec in surf.sections)
 
     claf = [sec.claf for sec in surf.sections]
     clcdsec = []

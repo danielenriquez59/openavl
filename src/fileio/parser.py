@@ -144,6 +144,9 @@ class SectionDef:
     cdcl: list[float] | None = None
     airfoil_camber: AirfoilCamber | None = None
     claf: float = 1.0
+    # Airfoil x/c range from the NACA/AIRFOIL/AFILE keyword line (XFMIN XFMAX).
+    xfmin: float = 0.0
+    xfmax: float = 1.0
 
 
 @dataclass
@@ -165,6 +168,7 @@ class SurfaceDef:
     noload: bool = False
     imags: int = 1
     clmax: float = 0.0  # max local Cl per surface; 0 = disabled (Geometry API only)
+    lrange: bool = True  # False once any airfoil keyword gives a partial x/c range (LRANGE)
 
 
 @dataclass
@@ -269,6 +273,36 @@ def _parse_airfoil_block(lines: list[str], index_ref: dict[str, int]) -> list[li
     return coords
 
 
+def _parse_xf_limits(trimmed_line: str) -> tuple[float, float]:
+    """Return optional ``XFMIN XFMAX`` from an airfoil keyword line.
+
+    ainput.f (NACA/AIRF/AFIL/BFIL) reads two numbers after the keyword with
+    GETFLT; if fewer than two numbers parse, the range is the whole airfoil.
+    """
+    parts = strip_inline_comment(trimmed_line).replace(",", " ").split()[1:3]
+    if len(parts) < 2 or not all(_is_finite_float(p) for p in parts):
+        return 0.0, 1.0
+    return max(0.0, float(parts[0])), min(1.0, float(parts[1]))
+
+
+def _is_partial_range(xfmin: float, xfmax: float) -> bool:
+    """ainput.f sets LRANGE false only for XFMIN > 0.01 or XFMAX < 0.99."""
+    return xfmin > 0.01 or xfmax < 0.99
+
+
+def _parse_naca_designator(line: str) -> str | None:
+    """Return the NACA designator token, read as one integer like ainput.f."""
+    tokens = strip_inline_comment(line).replace(",", " ").split()
+    if tokens and tokens[0].isdigit():
+        return tokens[0]
+    warnings.warn(
+        f"Unreadable NACA designator line: {line!r}; section gets no NACA airfoil.",
+        UserWarning,
+        stacklevel=3,
+    )
+    return None
+
+
 def _parse_afil_inline_path(trimmed_line: str) -> str:
     parts = strip_inline_comment(trimmed_line).strip().split()[1:]
     if parts:
@@ -371,8 +405,10 @@ def parse_avl(text: str) -> AVLModel:
                     if len(vals) >= 3:
                         body.translate = vals[:3]
                 elif subkey == "BFIL":
-                    parts = strip_inline_comment(trimmed).strip().split()[1:]
-                    path_value = " ".join(parts)
+                    # Optional XFMIN XFMAX on the keyword line are read by
+                    # ainput.f but never used for bodies (GETCAM takes the
+                    # whole shape), so numeric tokens are not part of the path.
+                    path_value = _parse_afil_inline_path(trimmed)
                     if not path_value:
                         path_value = next_line() or ""
                     normalized = normalize_airfoil_path(path_value)
@@ -459,9 +495,19 @@ def parse_avl(text: str) -> AVLModel:
             elif subkey == "NACA":
                 if not current_section:
                     continue
-                code = strip_inline_comment(trimmed[4:]).strip() or (next_line() or "")
-                match = re.search(r"(\d{4})", code)
-                current_section.naca = match.group(1) if match else None
+                # ainput.f: optional XFMIN XFMAX on the keyword line, designator
+                # on the next line. A lone integer on the keyword line is kept
+                # as an inline designator (OpenAVL extension; AVL rejects it).
+                xfmin, xfmax = _parse_xf_limits(trimmed)
+                inline = strip_inline_comment(trimmed).split()[1:]
+                if len(inline) == 1 and inline[0].isdigit():
+                    code_line = inline[0]
+                else:
+                    code_line = next_line() or ""
+                current_section.naca = _parse_naca_designator(code_line)
+                current_section.xfmin, current_section.xfmax = xfmin, xfmax
+                if _is_partial_range(xfmin, xfmax):
+                    surface.lrange = False
             elif subkey == "CLAF":
                 if not current_section:
                     continue
@@ -500,9 +546,18 @@ def parse_avl(text: str) -> AVLModel:
                 current_section.airfoil_file = normalized or None
                 if normalized:
                     inline_airfoils.append(normalized)
+                # x/c limits come only from the AFIL keyword line (ainput.f).
+                xfmin, xfmax = _parse_xf_limits(trimmed)
+                current_section.xfmin, current_section.xfmax = xfmin, xfmax
+                if _is_partial_range(xfmin, xfmax):
+                    surface.lrange = False
             elif subkey == "AIRF":
                 if not current_section:
                     continue
+                xfmin, xfmax = _parse_xf_limits(trimmed)
+                current_section.xfmin, current_section.xfmax = xfmin, xfmax
+                if _is_partial_range(xfmin, xfmax):
+                    surface.lrange = False
                 current_section.airfoil_coords = _parse_airfoil_block(lines, index_ref)
             elif subkey == "CONT":
                 if not current_section:
@@ -570,9 +625,9 @@ def prepare_model(model: AVLModel, base_dir: str | Path | None = None) -> AVLMod
                         )
 
             if coords:
-                sec.airfoil_camber = build_camber_slope(coords)
+                sec.airfoil_camber = build_camber_slope(coords, xfmin=sec.xfmin, xfmax=sec.xfmax)
             elif sec.naca:
-                sec.airfoil_camber = build_naca_slope(sec.naca)
+                sec.airfoil_camber = build_naca_slope(sec.naca, xfmin=sec.xfmin, xfmax=sec.xfmax)
             else:
                 sec.airfoil_camber = build_naca_slope("0000")
 
