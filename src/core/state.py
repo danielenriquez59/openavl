@@ -186,6 +186,9 @@ class AVLState:
     aicn: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     iapiv: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.int32))
     work: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
+    # gucalc unit-solution cache: inputs snapshot + results. Cleared by setup()
+    # whenever aicn is refactored; see setup._gucalc_cache_valid for the key.
+    gucalc_cache: dict[str, Any] | None = field(default=None, repr=False, compare=False)
     gam: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     gam_u_0: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     gam_u_d: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX, 1), dtype=np.float64))

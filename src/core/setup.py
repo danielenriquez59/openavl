@@ -58,6 +58,10 @@ def setup(state: AVLState) -> AVLState:
         )
 
         nv = state.nvor
+        if not state.aicn[:nv, :nv].flags.f_contiguous:
+            # Column-major storage lets ludcmp factor in place and baksub hand
+            # the factors to LAPACK without an n x n copy per solve.
+            state.aicn = np.zeros((nv, nv), dtype=np.float64, order="F")
         state.aicn[:nv, :nv] = np.einsum(
             "kij,ki->ij",
             state.wc_gam[:, :nv, :nv],
@@ -85,6 +89,8 @@ def setup(state: AVLState) -> AVLState:
         _mungea(state)
         ludcmp(state.aicn, state.nvor, state.iapiv, state.work)
         state.laic = True
+        # Unit solutions from the previous factorisation are stale.
+        state.gucalc_cache = None
 
     if not state.lsrd:
         srdset(
@@ -127,9 +133,55 @@ def setup(state: AVLState) -> AVLState:
     return state
 
 
-def gucalc(state: AVLState) -> AVLState:
-    """Compute unit-circulation sensitivities GAM_U_* via AIC back-substitution."""
+def _gucalc_inputs(state: AVLState) -> tuple[np.ndarray, ...]:
+    """Every array gucalc reads besides the factored AIC (aicn/iapiv)."""
     nvor = state.nvor
+    return (
+        state.xyzref,
+        state.rc[:, :nvor],
+        state.enc[:, :nvor],
+        state.enc_d[:, :nvor, : state.ncontrol],
+        state.enc_g[:, :nvor, : state.ndesign],
+        state.wcsrd_u[:, :nvor, :6],
+        state.lvnc[:nvor],
+        state.lvalbe[:nvor],
+    )
+
+
+def _gucalc_cache_valid(state: AVLState) -> bool:
+    """True when the cached unit solutions were built from the current inputs.
+
+    The factored AIC is too large to compare, so it is keyed by identity and by
+    setup() clearing the cache whenever it refactors (laic False, Mach change).
+    Everything else (xyzref, which exec_solve may change without clearing any
+    flag; body influence wcsrd_u; geometry normals; V.n flags) is compared by value.
+    """
+    cache = state.gucalc_cache
+    if cache is None or cache["aicn"] is not state.aicn:
+        return False
+    if cache["dims"] != (state.nvor, state.ncontrol, state.ndesign):
+        return False
+    return all(
+        np.array_equal(old, new)
+        for old, new in zip(cache["inputs"], _gucalc_inputs(state))
+    )
+
+
+def gucalc(state: AVLState) -> AVLState:
+    """Compute unit-circulation sensitivities GAM_U_* via AIC back-substitution.
+
+    The unit solutions do not depend on alpha/beta/rates/deflections, so they
+    are cached across runs; see ``_gucalc_cache_valid``.
+    """
+    nvor = state.nvor
+    if _gucalc_cache_valid(state):
+        gam_u_0, gam_u_d, gam_u_g = state.gucalc_cache["out"]
+        state.gam_u_0[:nvor, :6] = gam_u_0
+        state.gam_u_d[:nvor, :6, : state.ncontrol] = gam_u_d
+        state.gam_u_g[:nvor, :6, : state.ndesign] = gam_u_g
+        return state
+    inputs = tuple(np.array(a, copy=True) for a in _gucalc_inputs(state))
+
     lvnc = state.lvnc[:nvor]
     lvalbe = state.lvalbe[:nvor]
     enc = state.enc[:, :nvor]
@@ -201,6 +253,16 @@ def gucalc(state: AVLState) -> AVLState:
             state.nvor, 6, state.ndesign
         )
 
+    state.gucalc_cache = {
+        "aicn": state.aicn,
+        "dims": (nvor, state.ncontrol, state.ndesign),
+        "inputs": inputs,
+        "out": (
+            state.gam_u_0[:nvor, :6].copy(),
+            state.gam_u_d[:nvor, :6, : state.ncontrol].copy(),
+            state.gam_u_g[:nvor, :6, : state.ndesign].copy(),
+        ),
+    }
     return state
 
 
