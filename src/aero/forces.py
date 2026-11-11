@@ -260,30 +260,23 @@ def _accumulate_all_vortex_forces(
     state: Any,
     numax: int,
     ncontrol: int,
-    ndesign: int,
     gam: np.ndarray,
     gam_u: np.ndarray,
     gam_d: np.ndarray,
-    gam_g: np.ndarray,
     vv: np.ndarray,
     vv_u: np.ndarray,
     vv_d: np.ndarray,
-    vv_g: np.ndarray,
     wv: np.ndarray,
     wv_u: np.ndarray,
     wv_d: np.ndarray,
-    wv_g: np.ndarray,
     env_d: np.ndarray,
-    env_g: np.ndarray,
     lnfld_wv: bool,
 ) -> tuple[
     tuple[
         np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
         np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
         np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
-        np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray,
     ],
-    np.ndarray,
     np.ndarray,
     np.ndarray,
     np.ndarray,
@@ -293,16 +286,14 @@ def _accumulate_all_vortex_forces(
     nstrip = state.nstrip
     zeros_u = np.zeros((nstrip, numax), dtype=np.float64)
     zeros_d = np.zeros((nstrip, max(1, ncontrol)), dtype=np.float64)
-    zeros_g = np.zeros((nstrip, max(1, ndesign)), dtype=np.float64)
     if nvor == 0:
         empty = (
             np.zeros(nstrip), np.zeros(nstrip), np.zeros(nstrip),
             np.zeros(nstrip), np.zeros(nstrip), np.zeros(nstrip),
             zeros_u, zeros_u, zeros_u, zeros_u, zeros_u, zeros_u,
             zeros_d, zeros_d, zeros_d, zeros_d, zeros_d, zeros_d,
-            zeros_g, zeros_g, zeros_g, zeros_g, zeros_g, zeros_g,
         )
-        return empty, np.zeros(nstrip), zeros_u, zeros_d, zeros_g
+        return empty, np.zeros(nstrip), zeros_u, zeros_d
 
     vortex_to_strip = getattr(state, "vortex_to_strip", None)
     if vortex_to_strip is None or vortex_to_strip.shape[0] != nvor:
@@ -334,16 +325,14 @@ def _accumulate_all_vortex_forces(
         vind = wv[:, :nvor]
         vind_u = wv_u[:, :nvor, :numax]
         vind_d = wv_d[:, :nvor, :ncontrol] if ncontrol else None
-        vind_g = wv_g[:, :nvor, :ndesign] if ndesign else None
     else:
         # forces using h.v. induced velocities VV only (exclude body induced)
         vind = vv[:, :nvor]
         vind_u = vv_u[:, :nvor, :numax]
         vind_d = vv_d[:, :nvor, :ncontrol] if ncontrol else None
-        vind_g = vv_g[:, :nvor, :ndesign] if ndesign else None
 
     veff = state.vinf[:, np.newaxis] + vrot + vind
-    # set VEFF sensitivities to freestream,rotation,induced,controls,design
+    # set VEFF sensitivities to freestream,rotation,induced,controls
     veff_u = np.empty((3, numax, nvor), dtype=np.float64)
     _batch_veff_u(rrot, vind_u, numax, veff_u)
 
@@ -356,11 +345,6 @@ def _accumulate_all_vortex_forces(
     if ncontrol:
         veff_d = vind_d.transpose(0, 2, 1)
         f_d = _cross_axis0(veff_d, bound_leg_bc)
-
-    f_g = None
-    if ndesign:
-        veff_g = vind_g.transpose(0, 2, 1)
-        f_g = _cross_axis0(veff_g, bound_leg_bc)
 
     gamma = gam[:nvor]
     fgam = 2.0 * gamma * f
@@ -376,13 +360,6 @@ def _accumulate_all_vortex_forces(
             + 2.0 * gamma * f_d
         )
 
-    fgam_g = None
-    if ndesign:
-        fgam_g = (
-            2.0 * gam_g[:nvor, :].T[np.newaxis, :, :] * f[:, np.newaxis, :]
-            + 2.0 * gamma * f_g
-        )
-
     env = state.env[:, :nvor]
     dxv_w = state.dxv[:nvor] * state.wstrip[vortex_to_strip]
     # Delta Cp (loading across lifting surface) from vortex
@@ -392,12 +369,6 @@ def _accumulate_all_vortex_forces(
         term1 = np.sum(env[:, np.newaxis, :] * fgam_d, axis=0)
         term2 = np.einsum("kin,ki->in", env_d[:, :nvor, :ncontrol], fgam)
         state.dcp_d[:nvor, :ncontrol] = (term1.T + term2) / dxv_w[:, np.newaxis]
-    if ndesign:
-        term1 = np.sum(env[:, np.newaxis, :] * fgam_g, axis=0)
-        # term2 uses env_g which is currently zero (not yet computed in geometry.py);
-        # see state.py env_g comment for the fix and the AVL Fortran reference bug.
-        term2 = np.einsum("kin,ki->in", env_g[:, :nvor, :ndesign], fgam)
-        state.dcp_g[:nvor, :ndesign] = (term1.T + term2) / dxv_w[:, np.newaxis]
 
     inv_sr = np.where(active, 1.0 / sr, 0.0)
     inv_cr = np.where(active, 1.0 / cr_v, 0.0)
@@ -487,41 +458,6 @@ def _accumulate_all_vortex_forces(
         cnc_d_acc = np.zeros((nstrip, ncontrol), dtype=np.float64)
         np.add.at(cnc_d_acc, vortex_to_strip, cnc_d_v.T)
 
-    cfx_g = cfy_g = cfz_g = cmx_g = cmy_g = cmz_g = None
-    cnc_g_acc = None
-    if ndesign:
-        dcf_g = fgam_g * inv_sr
-        cfx_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        cfy_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        cfz_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        cmx_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        cmy_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        cmz_g = np.zeros((nstrip, ndesign), dtype=np.float64)
-        np.add.at(cfx_g, vortex_to_strip, dcf_g[0].T)
-        np.add.at(cfy_g, vortex_to_strip, dcf_g[1].T)
-        np.add.at(cfz_g, vortex_to_strip, dcf_g[2].T)
-        np.add.at(
-            cmx_g,
-            vortex_to_strip,
-            ((dcf_g[2] * r[1, np.newaxis, :] - dcf_g[1] * r[2, np.newaxis, :]) * inv_cr).T,
-        )
-        np.add.at(
-            cmy_g,
-            vortex_to_strip,
-            ((dcf_g[0] * r[2, np.newaxis, :] - dcf_g[2] * r[0, np.newaxis, :]) * inv_cr).T,
-        )
-        np.add.at(
-            cmz_g,
-            vortex_to_strip,
-            ((dcf_g[1] * r[0, np.newaxis, :] - dcf_g[0] * r[1, np.newaxis, :]) * inv_cr).T,
-        )
-        cnc_g_v = cr_v[np.newaxis, :] * np.sum(
-            ensy_v[np.newaxis, :] * dcf_g[1] + ensz_v[np.newaxis, :] * dcf_g[2],
-            axis=0,
-        )
-        cnc_g_acc = np.zeros((nstrip, ndesign), dtype=np.float64)
-        np.add.at(cnc_g_acc, vortex_to_strip, cnc_g_v.T)
-
     if ncontrol:
         # hinge moments
         phinge_v = state.phinge[:, vortex_to_strip, :ncontrol]
@@ -547,39 +483,23 @@ def _accumulate_all_vortex_forces(
             np.einsum("kvnc,knc->vnc", mh_d, vhinge_v) * dfac[np.newaxis, :, :],
             axis=1,
         ).T
-        if ndesign:
-            mh_g = _cross_axis0(
-                rh[:, np.newaxis, :, :],
-                fgam_g[:, :, :, np.newaxis],
-            )
-            state.chinge_g[:ncontrol, :ndesign] = np.sum(
-                np.einsum("kvnc,knc->vnc", mh_g, vhinge_v) * dfac[np.newaxis, :, :],
-                axis=1,
-            ).T
 
     if cfx_d is None:
         cfx_d, cfy_d, cfz_d, cmx_d, cmy_d, cmz_d = (
             zeros_d, zeros_d, zeros_d, zeros_d, zeros_d, zeros_d,
         )
         cnc_d_acc = zeros_d
-    if cfx_g is None:
-        cfx_g, cfy_g, cfz_g, cmx_g, cmy_g, cmz_g = (
-            zeros_g, zeros_g, zeros_g, zeros_g, zeros_g, zeros_g,
-        )
-        cnc_g_acc = zeros_g
 
     return (
         cfx, cfy, cfz, cmx, cmy, cmz,
         cfx_u, cfy_u, cfz_u, cmx_u, cmy_u, cmz_u,
         cfx_d, cfy_d, cfz_d, cmx_d, cmy_d, cmz_d,
-        cfx_g, cfy_g, cfz_g, cmx_g, cmy_g, cmz_g,
-    ), cnc, cnc_u_acc, cnc_d_acc, cnc_g_acc
+    ), cnc, cnc_u_acc, cnc_d_acc
 
 
-def _get_sfforc_work(state: Any, numax: int, ncontrol: int, ndesign: int) -> dict[str, np.ndarray]:
+def _get_sfforc_work(state: Any, numax: int, ncontrol: int) -> dict[str, np.ndarray]:
     """Return strip-force work buffers from state, or local fallbacks for minimal states."""
     nc = max(1, ncontrol)
-    nd = max(1, ndesign)
 
     def _buf(name: str, shape: tuple[int, ...]) -> np.ndarray:
         arr = getattr(state, name, None)
@@ -595,7 +515,6 @@ def _get_sfforc_work(state: Any, numax: int, ncontrol: int, ndesign: int) -> dic
         "ulift": _buf("sfforc_ulift", (3,)),
         "ulift_u": _buf("sfforc_ulift_u", (3, numax)),
         "ulift_d": _buf("sfforc_ulift_d", (3, nc))[:, :nc],
-        "ulift_g": _buf("sfforc_ulift_g", (3, nd))[:, :nd],
         "ulmag_u": _buf("sfforc_ulmag_u", (numax,)),
         "rc4": _buf("sfforc_rc4", (3,)),
         "cfx_u": _buf("sfforc_cfx_u", (numax,)),
@@ -610,19 +529,13 @@ def _get_sfforc_work(state: Any, numax: int, ncontrol: int, ndesign: int) -> dic
         "cmx_d": _buf("sfforc_cmx_d", (nc,))[:ncontrol],
         "cmy_d": _buf("sfforc_cmy_d", (nc,))[:ncontrol],
         "cmz_d": _buf("sfforc_cmz_d", (nc,))[:ncontrol],
-        "cfx_g": _buf("sfforc_cfx_g", (nd,))[:ndesign],
-        "cfy_g": _buf("sfforc_cfy_g", (nd,))[:ndesign],
-        "cfz_g": _buf("sfforc_cfz_g", (nd,))[:ndesign],
-        "cmx_g": _buf("sfforc_cmx_g", (nd,))[:ndesign],
-        "cmy_g": _buf("sfforc_cmy_g", (nd,))[:ndesign],
-        "cmz_g": _buf("sfforc_cmz_g", (nd,))[:ndesign],
         "veff": _buf("sfforc_veff", (3,)),
         "veff_u": _buf("sfforc_veff_u", (3, numax)),
         "veffmag_u": _buf("sfforc_veffmag_u", (numax,)),
     }
 
 
-def _zero_strip(state, j, nvc, i1, numax, ncontrol, ndesign):
+def _zero_strip(state, j, nvc, i1, numax, ncontrol):
     """Zero force outputs for an inactive strip."""
     state.cnc[j] = 0.0
     state.cdstrp[j] = 0.0
@@ -657,21 +570,12 @@ def _zero_strip(state, j, nvc, i1, numax, ncontrol, ndesign):
         state.clst_d[j, :ncontrol] = 0.0
         state.cfst_d[:, j, :ncontrol] = 0.0
         state.cmst_d[:, j, :ncontrol] = 0.0
-    if ndesign:
-        state.cnc_g[j, :ndesign] = 0.0
-        state.cdst_g[j, :ndesign] = 0.0
-        state.cyst_g[j, :ndesign] = 0.0
-        state.clst_g[j, :ndesign] = 0.0
-        state.cfst_g[:, j, :ndesign] = 0.0
-        state.cmst_g[:, j, :ndesign] = 0.0
     for chord_idx in range(nvc):
         i = i1 + chord_idx
         state.dcp[i] = 0.0
         state.dcp_u[i, :numax] = 0.0
         if ncontrol:
             state.dcp_d[i, :ncontrol] = 0.0
-        if ndesign:
-            state.dcp_g[i, :ndesign] = 0.0
 
 
 def sfforc(state: Any) -> Any:
@@ -692,7 +596,6 @@ def sfforc(state: Any) -> Any:
     """
     numax    = state.numax
     ncontrol = state.ncontrol
-    ndesign  = state.ndesign
     sina     = (np.sin((state.alfa)))
     cosa     = (np.cos((state.alfa)))
     ltrforce = bool(getattr(state, "ltrforce", False))
@@ -702,19 +605,15 @@ def sfforc(state: Any) -> Any:
     gam   = state.gam.reshape(-1) if state.gam.ndim > 1 else state.gam
     gam_u = state.gam_u
     gam_d = getattr(state, "gam_d", np.zeros((state.nvor, max(1, ncontrol)), dtype=np.float64))
-    gam_g = getattr(state, "gam_g", np.zeros((state.nvor, max(1, ndesign)), dtype=np.float64))
     vv    = getattr(state, "vv", np.zeros((3, state.nvor), dtype=np.float64))
     vv_u  = getattr(state, "vv_u", np.zeros((3, state.nvor, numax), dtype=np.float64))
     vv_d  = getattr(state, "vv_d", np.zeros((3, state.nvor, max(1, ncontrol)), dtype=np.float64))
-    vv_g  = getattr(state, "vv_g", np.zeros((3, state.nvor, max(1, ndesign)), dtype=np.float64))
     wv    = getattr(state, "wv", np.zeros((3, state.nvor), dtype=np.float64))
     wv_u  = getattr(state, "wv_u", np.zeros((3, state.nvor, numax), dtype=np.float64))
     wv_d  = getattr(state, "wv_d", np.zeros((3, state.nvor, max(1, ncontrol)), dtype=np.float64))
-    wv_g  = getattr(state, "wv_g", np.zeros((3, state.nvor, max(1, ndesign)), dtype=np.float64))
     env_d = getattr(state, "env_d", np.zeros((3, state.nvor, max(1, ncontrol)), dtype=np.float64))
-    env_g = getattr(state, "env_g", np.zeros((3, state.nvor, max(1, ndesign)), dtype=np.float64))
 
-    work = _get_sfforc_work(state, numax, ncontrol, ndesign)
+    work = _get_sfforc_work(state, numax, ncontrol)
     udrag_u = work["udrag_u"]
     udrag_u.fill(0.0)
     udrag_u[0, 0] = 1.0
@@ -726,7 +625,6 @@ def sfforc(state: Any) -> Any:
     ulift = work["ulift"]
     ulift_u = work["ulift_u"]
     ulift_d = work["ulift_d"]
-    ulift_g = work["ulift_g"]
     ulmag_u = work["ulmag_u"]
     rc4 = work["rc4"]
 
@@ -744,13 +642,6 @@ def sfforc(state: Any) -> Any:
     cmy_d = work["cmy_d"]
     cmz_d = work["cmz_d"]
 
-    cfx_g = work["cfx_g"]
-    cfy_g = work["cfy_g"]
-    cfz_g = work["cfz_g"]
-    cmx_g = work["cmx_g"]
-    cmy_g = work["cmy_g"]
-    cmz_g = work["cmz_g"]
-
     veff = work["veff"]
     veff_u = work["veff_u"]
     veffmag_u = work["veffmag_u"]
@@ -760,18 +651,16 @@ def sfforc(state: Any) -> Any:
             strip_cfx, strip_cfy, strip_cfz, strip_cmx, strip_cmy, strip_cmz,
             strip_cfx_u, strip_cfy_u, strip_cfz_u, strip_cmx_u, strip_cmy_u, strip_cmz_u,
             strip_cfx_d, strip_cfy_d, strip_cfz_d, strip_cmx_d, strip_cmy_d, strip_cmz_d,
-            strip_cfx_g, strip_cfy_g, strip_cfz_g, strip_cmx_g, strip_cmy_g, strip_cmz_g,
         ),
         strip_cnc,
         strip_cnc_u,
         strip_cnc_d,
-        strip_cnc_g,
     ) = _accumulate_all_vortex_forces(
-        state, numax, ncontrol, ndesign,
-        gam, gam_u, gam_d, gam_g,
-        vv, vv_u, vv_d, vv_g,
-        wv, wv_u, wv_d, wv_g,
-        env_d, env_g, lnfld_wv,
+        state, numax, ncontrol,
+        gam, gam_u, gam_d,
+        vv, vv_u, vv_d,
+        wv, wv_u, wv_d,
+        env_d, lnfld_wv,
     )
 
     # Integrate the forces strip-wise, then surface-wise and into totals
@@ -779,7 +668,7 @@ def sfforc(state: Any) -> Any:
         vortex_start = int(state.ijfrst[strip])
         n_chordwise = int(state.nvstrp[strip])
         if state.lstripoff[strip] or state.wstrip[strip] == 0.0:
-            _zero_strip(state, strip, n_chordwise, vortex_start, numax, ncontrol, ndesign)
+            _zero_strip(state, strip, n_chordwise, vortex_start, numax, ncontrol)
             continue
 
         # Calculate strip forces normalized to strip reference quantities
@@ -845,18 +734,9 @@ def sfforc(state: Any) -> Any:
             cmx_d[:] = strip_cmx_d[strip, :ncontrol]
             cmy_d[:] = strip_cmy_d[strip, :ncontrol]
             cmz_d[:] = strip_cmz_d[strip, :ncontrol]
-        if ndesign:
-            cfx_g[:] = strip_cfx_g[strip, :ndesign]
-            cfy_g[:] = strip_cfy_g[strip, :ndesign]
-            cfz_g[:] = strip_cfz_g[strip, :ndesign]
-            cmx_g[:] = strip_cmx_g[strip, :ndesign]
-            cmy_g[:] = strip_cmy_g[strip, :ndesign]
-            cmz_g[:] = strip_cmz_g[strip, :ndesign]
         state.cnc_u[strip, :numax] = strip_cnc_u[strip, :numax]
         if ncontrol:
             state.cnc_d[strip, :ncontrol] = strip_cnc_d[strip, :ncontrol]
-        if ndesign:
-            state.cnc_g[strip, :ndesign] = strip_cnc_g[strip, :ndesign]
 
         # Add h.v. forces from trailing legs lying on the wing surface
         if ltrforce:
@@ -961,11 +841,6 @@ def sfforc(state: Any) -> Any:
                 + ulift[1] * cfy_d + ulift_d[1] * cfy
                 + ulift[2] * cfz_d + ulift_d[2] * cfz
             )
-            clv_g = (
-                ulift[0] * cfx_g + ulift_g[0] * cfx
-                + ulift[1] * cfy_g + ulift_g[1] * cfy
-                + ulift[2] * cfz_g + ulift_g[2] * cfz
-            )
             # Get CD from CLCD function using strip CL as parameter
             cdv, cdv_clv = cdcl(state.clcd[strip, :], float(clv))
             # Strip viscous force contribution (per unit strip area)
@@ -999,13 +874,6 @@ def sfforc(state: Any) -> Any:
             cfy_d += dcvfy_d
             cfz_d += dcvfz_d
             state.cnc_d[strip, :ncontrol] += cr * (state.ensy[strip] * dcvfy_d + state.ensz[strip] * dcvfz_d)
-            dcvfx_g = veff[0] * veffmag * cdv_clv * clv_g
-            dcvfy_g = veff[1] * veffmag * cdv_clv * clv_g
-            dcvfz_g = veff[2] * veffmag * cdv_clv * clv_g
-            cfx_g += dcvfx_g
-            cfy_g += dcvfy_g
-            cfz_g += dcvfz_g
-            state.cnc_g[strip, :ndesign] += cr * (state.ensy[strip] * dcvfy_g + state.ensz[strip] * dcvfz_g)
 
         # At this point strip forces are in body axes at c/4, normalized by area/chord
         state.cf_lstrp[0, strip], state.cf_lstrp[1, strip], state.cf_lstrp[2, strip] = cfx, cfy, cfz
@@ -1031,13 +899,6 @@ def sfforc(state: Any) -> Any:
             state.cfst_d[0, strip, :ncontrol] = cfx_d
             state.cfst_d[1, strip, :ncontrol] = cfy_d
             state.cfst_d[2, strip, :ncontrol] = cfz_d
-        if ndesign:
-            state.cdst_g[strip, :ndesign] = cfx_g * cosa + cfz_g * sina
-            state.cyst_g[strip, :ndesign] = cfy_g
-            state.clst_g[strip, :ndesign] = -cfx_g * sina + cfz_g * cosa
-            state.cfst_g[0, strip, :ndesign] = cfx_g
-            state.cfst_g[1, strip, :ndesign] = cfy_g
-            state.cfst_g[2, strip, :ndesign] = cfz_g
 
         # vector from chord c/4 reference point to case reference point XYZREF
         rref = rc4 - state.xyzref
@@ -1052,10 +913,6 @@ def sfforc(state: Any) -> Any:
             state.cmst_d[0, strip, :ncontrol] = cmx_d + ((cfz_d * rref[1]) - (cfy_d * rref[2])) / cr
             state.cmst_d[1, strip, :ncontrol] = cmy_d + ((cfx_d * rref[2]) - (cfz_d * rref[0])) / cr
             state.cmst_d[2, strip, :ncontrol] = cmz_d + ((cfy_d * rref[0]) - (cfx_d * rref[1])) / cr
-        if ndesign:
-            state.cmst_g[0, strip, :ndesign] = cmx_g + ((cfz_g * rref[1]) - (cfy_g * rref[2])) / cr
-            state.cmst_g[1, strip, :ndesign] = cmy_g + ((cfx_g * rref[2]) - (cfz_g * rref[0])) / cr
-            state.cmst_g[2, strip, :ndesign] = cmz_g + ((cfy_g * rref[0]) - (cfx_g * rref[1])) / cr
 
         state.cl_lstrp[strip] = (ulift[0] * cfx + ulift[1] * cfy + ulift[2] * cfz)
         state.cd_lstrp[strip] = (udrag[0] * cfx + udrag[1] * cfy + udrag[2] * cfz)
@@ -1111,7 +968,6 @@ def sfforc(state: Any) -> Any:
             for suffix, count, lift_deriv in (
                 ("u", numax, ulift_u),
                 ("d", ncontrol, ulift_d[:, :ncontrol]),
-                ("g", ndesign, ulift_g[:, :ndesign]),
             ):
                 if not count:
                     continue
@@ -1196,13 +1052,6 @@ def sfforc(state: Any) -> Any:
             state.clst_d[js, :ncontrol] *= scale[:, np.newaxis]
             state.cfst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
             state.cmst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
-        if ndesign:
-            state.cnc_g[js, :ndesign] *= scale[:, np.newaxis]
-            state.cdst_g[js, :ndesign] *= scale[:, np.newaxis]
-            state.cyst_g[js, :ndesign] *= scale[:, np.newaxis]
-            state.clst_g[js, :ndesign] *= scale[:, np.newaxis]
-            state.cfst_g[:, js, :ndesign] *= scale[np.newaxis, :, np.newaxis]
-            state.cmst_g[:, js, :ndesign] *= scale[np.newaxis, :, np.newaxis]
 
     # Surface forces and moments summed from strip forces
     for isurf in range(state.nsurf):
@@ -1226,12 +1075,6 @@ def sfforc(state: Any) -> Any:
             state.cls_d[isurf, :ncontrol] = 0.0
             state.cfs_d[:, isurf, :ncontrol] = 0.0
             state.cms_d[:, isurf, :ncontrol] = 0.0
-        if ndesign:
-            state.cds_g[isurf, :ndesign] = 0.0
-            state.cys_g[isurf, :ndesign] = 0.0
-            state.cls_g[isurf, :ndesign] = 0.0
-            state.cfs_g[:, isurf, :ndesign] = 0.0
-            state.cms_g[:, isurf, :ndesign] = 0.0
         state.cf_lsrf[:, isurf] = 0.0
         state.cm_lsrf[:, isurf] = 0.0
         enave = np.zeros(3, dtype=np.float64)
@@ -1298,28 +1141,6 @@ def sfforc(state: Any) -> Any:
             )
             state.cms_d[2, isurf, :ncontrol] = np.sum(
                 state.cmst_d[2, js, :ncontrol] * scale_cm_b[:, np.newaxis], axis=0
-            )
-        if ndesign:
-            state.cds_g[isurf, :ndesign] = np.sum(
-                state.cdst_g[js, :ndesign] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cys_g[isurf, :ndesign] = np.sum(
-                state.cyst_g[js, :ndesign] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cls_g[isurf, :ndesign] = np.sum(
-                state.clst_g[js, :ndesign] * scale_sref[:, np.newaxis], axis=0
-            )
-            state.cfs_g[:, isurf, :ndesign] = np.sum(
-                state.cfst_g[:, js, :ndesign] * scale_sref[np.newaxis, :, np.newaxis], axis=1
-            )
-            state.cms_g[0, isurf, :ndesign] = np.sum(
-                state.cmst_g[0, js, :ndesign] * scale_cm_b[:, np.newaxis], axis=0
-            )
-            state.cms_g[1, isurf, :ndesign] = np.sum(
-                state.cmst_g[1, js, :ndesign] * scale_cm_c[:, np.newaxis], axis=0
-            )
-            state.cms_g[2, isurf, :ndesign] = np.sum(
-                state.cmst_g[2, js, :ndesign] * scale_cm_b[:, np.newaxis], axis=0
             )
 
         rc4s = np.stack(
@@ -1388,12 +1209,6 @@ def sfforc(state: Any) -> Any:
                 state.cltot_d[:ncontrol] += state.cls_d[isurf, :ncontrol]
                 state.cftot_d[:, :ncontrol] += state.cfs_d[:, isurf, :ncontrol]
                 state.cmtot_d[:, :ncontrol] += state.cms_d[:, isurf, :ncontrol]
-            if ndesign:
-                state.cdtot_g[:ndesign] += state.cds_g[isurf, :ndesign]
-                state.cytot_g[:ndesign] += state.cys_g[isurf, :ndesign]
-                state.cltot_g[:ndesign] += state.cls_g[isurf, :ndesign]
-                state.cftot_g[:, :ndesign] += state.cfs_g[:, isurf, :ndesign]
-                state.cmtot_g[:, :ndesign] += state.cms_g[:, isurf, :ndesign]
 
     return state
 
@@ -1406,7 +1221,6 @@ def aero(state: Any) -> Any:
     """
     numax = state.numax
     ncontrol = state.ncontrol
-    ndesign = state.ndesign
 
     # Zero force/moment totals and derivative accumulators.
     state.cdtot = 0.0
@@ -1431,13 +1245,6 @@ def aero(state: Any) -> Any:
         state.cftot_d[:, :ncontrol] = 0.0
         state.cmtot_d[:, :ncontrol] = 0.0
         state.chinge_d[:ncontrol, :ncontrol] = 0.0
-    if ndesign:
-        state.cdtot_g[:ndesign] = 0.0
-        state.cytot_g[:ndesign] = 0.0
-        state.cltot_g[:ndesign] = 0.0
-        state.cftot_g[:, :ndesign] = 0.0
-        state.cmtot_g[:, :ndesign] = 0.0
-        state.chinge_g[:ncontrol, :ndesign] = 0.0
 
     # Evaluate forces on surface, bodies and Trefftz plane
     sfforc(state)
@@ -1484,17 +1291,6 @@ def aero(state: Any) -> Any:
             state.cmtot_d[0, :] = 0.0
             state.cmtot_d[1, :] = 2.0 * state.cmtot_d[1, :]
             state.cmtot_d[2, :] = 0.0
-
-        if ndesign:
-            state.cdtot_g[:] = 2.0 * state.cdtot_g
-            state.cytot_g[:] = 0.0
-            state.cltot_g[:] = 2.0 * state.cltot_g
-            state.cftot_g[0, :] = 2.0 * state.cftot_g[0, :]
-            state.cftot_g[1, :] = 0.0
-            state.cftot_g[2, :] = 2.0 * state.cftot_g[2, :]
-            state.cmtot_g[0, :] = 0.0
-            state.cmtot_g[1, :] = 2.0 * state.cmtot_g[1, :]
-            state.cmtot_g[2, :] = 0.0
 
     # add baseline reference CD to totals; force in direction of freestream
     vsq = (

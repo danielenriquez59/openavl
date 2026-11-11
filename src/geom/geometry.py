@@ -502,9 +502,6 @@ def sdupl(state, base_surf: int, ydup: float, new_surf: int) -> None:
         state.ainc2[jji] = state.ainc1[jj]
         state.lssurf[jji] = new_surf
 
-        if state.ndesign > 0:
-            state.ainc_g[jji, :state.ndesign] = state.ainc_g[jj, :state.ndesign]
-
         state.clcd[jji, :] = state.clcd[jj, :]
         state.lviscstrp[jji] = state.lviscstrp[jj]
 

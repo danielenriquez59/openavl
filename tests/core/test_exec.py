@@ -18,16 +18,13 @@ pytestmark = pytest.mark.core
 def _make_exec_state() -> AVLState:
     nvor = 1
     ndmax = 1
-    ngmax = 1
     state = AVLState(
         nvor=nvor,
         nvmax=nvor,
         nlnode=0,
         ncontrol=0,
-        ndesign=0,
         numax=C.NUMAX,
         ndmax=ndmax,
-        ngmax=ngmax,
         nlmax=1,
         nstrip=0,
         nsurf=0,
@@ -44,7 +41,7 @@ def _make_exec_state() -> AVLState:
         cref=1.0,
         bref=1.0,
     )
-    state._allocate_arrays(ndmax, ngmax, 1, nvor, 1)
+    state._allocate_arrays(ndmax, 1, nvor, 1)
     ir = 0
     state.parval[C.IPMACH, ir] = 0.2
     state.parval[C.IPCD0, ir] = 0.01

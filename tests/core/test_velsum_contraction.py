@@ -19,7 +19,6 @@ def _reference(state: AVLState) -> dict[str, np.ndarray]:
     n = state.nvor
     nu = state.numax
     nc = state.ncontrol
-    ng = state.ndesign
     u = np.concatenate((state.vinf, state.wrot))[:nu]
     wc = state.wc_gam[:, :n, :n]
     wv = state.wv_gam[:, :n, :n]
@@ -30,8 +29,6 @@ def _reference(state: AVLState) -> dict[str, np.ndarray]:
         "vv_u": np.einsum("kij,jn->kin", wv, state.gam_u[:n, :nu]),
         "vc_d": np.einsum("kij,jn->kin", wc, state.gam_d[:n, :nc]),
         "vv_d": np.einsum("kij,jn->kin", wv, state.gam_d[:n, :nc]),
-        "vc_g": np.einsum("kij,jn->kin", wc, state.gam_g[:n, :ng]),
-        "vv_g": np.einsum("kij,jn->kin", wv, state.gam_g[:n, :ng]),
         "wcsrd": np.einsum("kin,n->ki", state.wcsrd_u[:, :n, :nu], u),
         "wvsrd": np.einsum("kin,n->ki", state.wvsrd_u[:, :n, :nu], u),
     }
@@ -41,15 +38,13 @@ def _reference(state: AVLState) -> dict[str, np.ndarray]:
     ref["wv_u"] = ref["vv_u"] + state.wvsrd_u[:, :n, :nu]
     ref["wc_d"] = ref["vc_d"]
     ref["wv_d"] = ref["vv_d"]
-    ref["wc_g"] = ref["vc_g"]
-    ref["wv_g"] = ref["vv_g"]
     return ref
 
 
 def _assert_matches(state: AVLState) -> None:
     ref = _reference(state)
     n = state.nvor
-    trailing = {"u": state.numax, "d": state.ncontrol, "g": state.ndesign}
+    trailing = {"u": state.numax, "d": state.ncontrol}
     for name, expected in ref.items():
         arr = getattr(state, name)
         suffix = name.rsplit("_", 1)[-1] if "_" in name else ""
@@ -60,23 +55,21 @@ def _assert_matches(state: AVLState) -> None:
         assert err <= RTOL, f"{name}: rel err {err:.3e}"
 
 
-def test_velsum_random_state_with_controls_designs_and_padding():
-    """Random tensors, controls and design variables, nvmax > nvor (strided views)."""
+def test_velsum_random_state_with_controls_and_padding():
+    """Random tensors and controls, nvmax > nvor (strided views)."""
     rng = np.random.default_rng(7)
-    nvor, nvmax, ncontrol, ndesign = 37, 45, 2, 3
+    nvor, nvmax, ncontrol = 37, 45, 2
     state = AVLState(
         nvor=nvor,
         nvmax=nvmax,
         ncontrol=ncontrol,
-        ndesign=ndesign,
         numax=C.NUMAX,
         ndmax=C.NDMAX,
-        ngmax=C.NGMAX,
     )
-    state._allocate_arrays(C.NDMAX, C.NGMAX, 1, nvmax, 1)
+    state._allocate_arrays(C.NDMAX, 1, nvmax, 1)
     state.vinf[:] = [0.9, -0.1, 0.2]
     state.wrot[:] = [0.05, -0.02, 0.03]
-    for name in ("wc_gam", "wv_gam", "wcsrd_u", "wvsrd_u", "gam", "gam_u", "gam_d", "gam_g"):
+    for name in ("wc_gam", "wv_gam", "wcsrd_u", "wvsrd_u", "gam", "gam_u", "gam_d"):
         arr = getattr(state, name)
         arr[...] = rng.standard_normal(arr.shape)
 

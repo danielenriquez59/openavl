@@ -75,16 +75,13 @@ def _sum_strip_circulations(
     gam: np.ndarray,
     gam_u: np.ndarray,
     gam_d: np.ndarray,
-    gam_g: np.ndarray,
     numax: int,
     ncontrol: int,
-    ndesign: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sum vortex circulations and sensitivities per strip (GAMS arrays)."""
     gams = np.zeros(nstrip, dtype=np.float64)
     gams_u = np.zeros((nstrip, numax), dtype=np.float64)
     gams_d = np.zeros((nstrip, max(1, ncontrol)), dtype=np.float64)
-    gams_g = np.zeros((nstrip, max(1, ndesign)), dtype=np.float64)
     for jc in range(nstrip):
         i1 = int(ijfrst[jc])
         nvc = int(nvstrp[jc])
@@ -95,9 +92,7 @@ def _sum_strip_circulations(
         gams_u[jc] = np.sum(gam_u[idx, :numax], axis=0)
         if ncontrol:
             gams_d[jc] = np.sum(gam_d[idx, :ncontrol], axis=0)
-        if ndesign:
-            gams_g[jc] = np.sum(gam_g[idx, :ndesign], axis=0)
-    return gams, gams_u, gams_d, gams_g
+    return gams, gams_u, gams_d
 
 
 def _trefftz_kernel(
@@ -151,15 +146,12 @@ def _contract_trefftz_kernel(
     gams: np.ndarray,
     gams_u: np.ndarray,
     gams_d: np.ndarray,
-    gams_g: np.ndarray,
     active: np.ndarray,
     hpi: float,
     sign: float,
     numax: int,
     ncontrol: int,
-    ndesign: int,
 ) -> tuple[
-    np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
@@ -172,14 +164,11 @@ def _contract_trefftz_kernel(
     vz = hpi * np.sum(gams[np.newaxis, :] * yterm, axis=1)
     vy_u = hpi * np.einsum("jn,ij->in", gams_u[:, :numax], dterm, optimize=True)
     vz_u = hpi * np.einsum("jn,ij->in", gams_u[:, :numax], yterm, optimize=True)
-    vy_d = vz_d = vy_g = vz_g = None
+    vy_d = vz_d = None
     if ncontrol:
         vy_d = hpi * np.einsum("jn,ij->in", gams_d[:, :ncontrol], dterm, optimize=True)
         vz_d = hpi * np.einsum("jn,ij->in", gams_d[:, :ncontrol], yterm, optimize=True)
-    if ndesign:
-        vy_g = hpi * np.einsum("jn,ij->in", gams_g[:, :ndesign], dterm, optimize=True)
-        vz_g = hpi * np.einsum("jn,ij->in", gams_g[:, :ndesign], yterm, optimize=True)
-    return vy, vz, vy_u, vz_u, vy_d, vz_d, vy_g, vz_g
+    return vy, vz, vy_u, vz_u, vy_d, vz_d
 
 
 def _accumulate_trefftz_induced(
@@ -192,7 +181,6 @@ def _accumulate_trefftz_induced(
     gams: np.ndarray,
     gams_u: np.ndarray,
     gams_d: np.ndarray,
-    gams_g: np.ndarray,
     rcore_ij: np.ndarray,
     active: np.ndarray,
     hpi: float,
@@ -202,9 +190,7 @@ def _accumulate_trefftz_induced(
     zoff: float,
     numax: int,
     ncontrol: int,
-    ndesign: int,
 ) -> tuple[
-    np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
     np.ndarray, np.ndarray,
@@ -216,13 +202,11 @@ def _accumulate_trefftz_induced(
     vz_u = np.zeros((ycntr.shape[0], numax), dtype=np.float64)
     vy_d = np.zeros((ycntr.shape[0], max(1, ncontrol)), dtype=np.float64) if ncontrol else None
     vz_d = np.zeros((ycntr.shape[0], max(1, ncontrol)), dtype=np.float64) if ncontrol else None
-    vy_g = np.zeros((ycntr.shape[0], max(1, ndesign)), dtype=np.float64) if ndesign else None
-    vz_g = np.zeros((ycntr.shape[0], max(1, ndesign)), dtype=np.float64) if ndesign else None
 
     def _add(dterm: np.ndarray, yterm: np.ndarray, sign: float) -> None:
-        cvy, cvz, cvy_u, cvz_u, cvy_d, cvz_d, cvy_g, cvz_g = _contract_trefftz_kernel(
-            dterm, yterm, gams, gams_u, gams_d, gams_g, active, hpi, sign,
-            numax, ncontrol, ndesign,
+        cvy, cvz, cvy_u, cvz_u, cvy_d, cvz_d = _contract_trefftz_kernel(
+            dterm, yterm, gams, gams_u, gams_d, active, hpi, sign,
+            numax, ncontrol,
         )
         vy[:] += cvy
         vz[:] += cvz
@@ -231,9 +215,6 @@ def _accumulate_trefftz_induced(
         if ncontrol and cvy_d is not None:
             vy_d[:] += cvy_d
             vz_d[:] += cvz_d
-        if ndesign and cvy_g is not None:
-            vy_g[:] += cvy_g
-            vz_g[:] += cvz_g
 
     dterm, yterm = _trefftz_kernel(ycntr, zcntr, rt1_y, rt1_z, rt2_y, rt2_z, rcore_ij, active)
     # Sum velocity contributions from wake vortices (real vortex)
@@ -258,13 +239,13 @@ def _accumulate_trefftz_induced(
             z2z = zoff - rt2_z
             dterm, yterm = _trefftz_kernel(ycntr, zcntr, y1y, z1z, y2y, z2z, active=active)
             sym_yz = float(iysym * izsym)
-            cvy, cvz, cvy_u, cvz_u, cvy_d, cvz_d, cvy_g, cvz_g = _contract_trefftz_kernel(
-                dterm, yterm, gams, gams_u, gams_d, gams_g, active, hpi, sym_yz,
-                numax, ncontrol, ndesign,
+            cvy, cvz, cvy_u, cvz_u, cvy_d, cvz_d = _contract_trefftz_kernel(
+                dterm, yterm, gams, gams_u, gams_d, active, hpi, sym_yz,
+                numax, ncontrol,
             )
             vy += cvy
             vz += cvz
-            # NOTE: the yz-image contribution to gams/gams_u/gams_d/gams_g all
+            # NOTE: the yz-image contribution to gams/gams_u/gams_d all
             # pass through the *same* signed kernel (dterm/yterm already carry
             # sym_yz via `wt` in _contract_trefftz_kernel), so the sensitivity
             # accumulation must use the same sign as the primal velocity
@@ -276,11 +257,8 @@ def _accumulate_trefftz_induced(
             if ncontrol and cvy_d is not None:
                 vy_d += cvy_d
                 vz_d += cvz_d
-            if ndesign and cvy_g is not None:
-                vy_g += cvy_g
-                vz_g += cvz_g
 
-    return vy, vz, vy_u, vz_u, vy_d, vz_d, vy_g, vz_g
+    return vy, vz, vy_u, vz_u, vy_d, vz_d
 
 
 def tpforc(state: Any) -> None:
@@ -293,7 +271,7 @@ def tpforc(state: Any) -> None:
     the real and image sides to enforce symmetry boundary conditions.
 
     When both Y and Z images are active (``iysym·izsym ≠ 0``), OpenAVL
-    accumulates yz-image velocity *and* its ``_u/_d/_g`` sensitivities with
+    accumulates yz-image velocity *and* its ``_u/_d`` sensitivities with
     the same sign. AVL 3.50 adds the primal contribution but subtracts the
     sensitivities — an inconsistency OpenAVL deliberately corrects (see
     ``test_tpforc_yz_image_sensitivity_fd``).
@@ -304,11 +282,10 @@ def tpforc(state: Any) -> None:
         cdff    -- far-field induced drag coefficient
         spanef  -- span efficiency  e = (CL^2 + CY^2) / (pi * AR * CDi)
         dwwake  -- far-field downwash at each strip centre
-        *_u/d/g -- derivatives w.r.t. state, control, and design variables
+        *_u/d   -- derivatives w.r.t. state and control variables
     """
     numax = state.numax
     ncontrol = state.ncontrol
-    ndesign = state.ndesign
     nstrip = state.nstrip
     amach = getattr(state, "amach", state.mach)
 
@@ -326,11 +303,10 @@ def tpforc(state: Any) -> None:
     gam = state.gam.reshape(-1) if state.gam.ndim > 1 else state.gam
     gam_u = state.gam_u
     gam_d = getattr(state, "gam_d", np.zeros((state.nvor, max(1, ncontrol)), dtype=np.float64))
-    gam_g = getattr(state, "gam_g", np.zeros((state.nvor, max(1, ndesign)), dtype=np.float64))
 
-    gams, gams_u, gams_d, gams_g = _sum_strip_circulations(
-        nstrip, state.ijfrst, state.nvstrp, gam, gam_u, gam_d, gam_g,
-        numax, ncontrol, ndesign,
+    gams, gams_u, gams_d = _sum_strip_circulations(
+        nstrip, state.ijfrst, state.nvstrp, gam, gam_u, gam_d,
+        numax, ncontrol,
     )
 
     ic = (state.ijfrst + state.nvstrp - 1).astype(np.intp)
@@ -355,13 +331,13 @@ def tpforc(state: Any) -> None:
     rcore_ij = np.where(cross_comp, rcore_cross[np.newaxis, :], 0.0)
 
     active = ~np.asarray(state.lstripoff[:nstrip], dtype=bool)
-    vy, vz, vy_u, vz_u, vy_d, vz_d, vy_g, vz_g = _accumulate_trefftz_induced(
+    vy, vz, vy_u, vz_u, vy_d, vz_d = _accumulate_trefftz_induced(
         rtc[1, :], rtc[2, :],
         rt1[1, :], rt1[2, :], rt2[1, :], rt2[2, :],
-        gams, gams_u, gams_d, gams_g,
+        gams, gams_u, gams_d,
         rcore_ij, active.astype(np.float64),
         hpi, state.izsym, state.iysym, yoff, zoff,
-        numax, ncontrol, ndesign,
+        numax, ncontrol,
     )
 
     dwwake = -(ny * vy + nz * vz)
@@ -382,9 +358,6 @@ def tpforc(state: Any) -> None:
     clff_d = np.zeros(ncontrol, dtype=np.float64)
     cyff_d = np.zeros(ncontrol, dtype=np.float64)
     cdff_d = np.zeros(ncontrol, dtype=np.float64)
-    clff_g = np.zeros(ndesign, dtype=np.float64)
-    cyff_g = np.zeros(ndesign, dtype=np.float64)
-    cdff_g = np.zeros(ndesign, dtype=np.float64)
 
     if np.any(load_strip):
         ls = load_strip
@@ -401,13 +374,6 @@ def tpforc(state: Any) -> None:
                 np.sum(gams_d[ls, :ncontrol] * (dzt[ls, np.newaxis] * vy[ls, np.newaxis] - dyt[ls, np.newaxis] * vz[ls, np.newaxis]), axis=0)
                 + np.sum(gams[ls, np.newaxis] * (dzt[ls, np.newaxis] * vy_d[ls, :ncontrol] - dyt[ls, np.newaxis] * vz_d[ls, :ncontrol]), axis=0)
             ) * inv_sref
-        if ndesign:
-            clff_g = 2.0 * np.sum(gams_g[ls, :ndesign] * dyt[ls, np.newaxis], axis=0) * inv_sref
-            cyff_g = -2.0 * np.sum(gams_g[ls, :ndesign] * dzt[ls, np.newaxis], axis=0) * inv_sref
-            cdff_g = (
-                np.sum(gams_g[ls, :ndesign] * (dzt[ls, np.newaxis] * vy[ls, np.newaxis] - dyt[ls, np.newaxis] * vz[ls, np.newaxis]), axis=0)
-                + np.sum(gams[ls, np.newaxis] * (dzt[ls, np.newaxis] * vy_g[ls, :ndesign] - dyt[ls, np.newaxis] * vz_g[ls, :ndesign]), axis=0)
-            ) * inv_sref
 
     # If case is XZ symmetric (IYSYM=1), add contributions from images,
     # zero out the asymmetric forces and double the symmetric ones
@@ -421,9 +387,6 @@ def tpforc(state: Any) -> None:
         clff_d[:] = (2.0 * clff_d)
         cyff_d[:] = 0.0
         cdff_d[:] = (2.0 * cdff_d)
-        clff_g[:] = (2.0 * clff_g)
-        cyff_g[:] = 0.0
-        cdff_g[:] = (2.0 * cdff_g)
 
     # aspect ratio
     ar = (state.bref * state.bref / state.sref)
@@ -432,7 +395,6 @@ def tpforc(state: Any) -> None:
         spanef_a = (0.0)
         spanef_u = np.zeros(numax, dtype=np.float64)
         spanef_d = np.zeros(ncontrol, dtype=np.float64)
-        spanef_g = np.zeros(ndesign, dtype=np.float64)
     else:
         # span efficiency: e = (CL^2 + CY^2) / (pi * AR * CDi)
         spanef = ((clff * clff + cyff * cyff) / (state.pi * ar * cdff))
@@ -443,7 +405,6 @@ def tpforc(state: Any) -> None:
         spanef_a = (0.0)
         spanef_u = (spanef_cl * clff_u + spanef_cy * cyff_u + spanef_cd * cdff_u)
         spanef_d = (spanef_cl * clff_d + spanef_cy * cyff_d + spanef_cd * cdff_d)
-        spanef_g = (spanef_cl * clff_g + spanef_cy * cyff_g + spanef_cd * cdff_g)
 
     state.clff = clff
     state.cyff = cyff
@@ -459,9 +420,5 @@ def tpforc(state: Any) -> None:
     state.cyff_d = cyff_d
     state.cdff_d = cdff_d
     state.spanef_d = spanef_d
-    state.clff_g = clff_g
-    state.cyff_g = cyff_g
-    state.cdff_g = cdff_g
-    state.spanef_g = spanef_g
 
 

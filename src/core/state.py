@@ -25,13 +25,11 @@ class AVLState:
     nsurf: int = 0
     nsurfmax: int = 0
     ncontrol: int = 0
-    ndesign: int = 0
     nbody: int = 0
     nlnode: int = 0
     nlmax: int = 0
     numax: int = C.NUMAX
     ndmax: int = C.NDMAX
-    ngmax: int = C.NGMAX
     nvtot: int = C.IVTOT
     nctot: int = C.ICTOT
 
@@ -96,7 +94,6 @@ class AVLState:
     conval: np.ndarray = field(default_factory=lambda: np.zeros((C.ICMAX + 1, 1), dtype=np.float64))
     icon: np.ndarray   = field(default_factory=lambda: np.zeros((C.IVMAX + 1, 1), dtype=np.int32))
     delcon: np.ndarray = field(default_factory=lambda: np.zeros(C.NDMAX + 1, dtype=np.float64))
-    deldes: np.ndarray = field(default_factory=lambda: np.zeros(C.NGMAX + 1, dtype=np.float64))
 
     # Surface indexing
     imags: np.ndarray    = field(default_factory=lambda: np.zeros(1, dtype=np.int32))
@@ -128,7 +125,6 @@ class AVLState:
     tanle: np.ndarray  = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     tante: np.ndarray  = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     ainc: np.ndarray   = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    ainc_g: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     clcd: np.ndarray   = field(default_factory=lambda: np.zeros((1, 6), dtype=np.float64))
     lviscstrp: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=bool))
     lstripoff: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=bool))
@@ -174,7 +170,6 @@ class AVLState:
     env: np.ndarray   = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     enc_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     env_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    enc_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
 
     # Body geometry
     lfrst: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.int32))
@@ -192,10 +187,8 @@ class AVLState:
     gam: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     gam_u_0: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     gam_u_d: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX, 1), dtype=np.float64))
-    gam_u_g: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX, 1), dtype=np.float64))
     gam_u: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     gam_d: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
-    gam_g: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     wc_gam: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     wv_gam: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     wcsrd_u: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, C.NUMAX), dtype=np.float64))
@@ -218,10 +211,6 @@ class AVLState:
     vv_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     wc_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     wv_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    vc_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    vv_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    wc_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    wv_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
 
     # Force results
     cltot: float = 0.0
@@ -249,16 +238,13 @@ class AVLState:
     chinge: np.ndarray = field(default_factory=lambda: np.zeros(C.NDMAX + 1, dtype=np.float64))
     chinge_u: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     chinge_d: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
-    chinge_g: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     dcp: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     dcp_u: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     dcp_d: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
-    dcp_g: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     dcpb: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     cnc: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     cnc_u: np.ndarray = field(default_factory=lambda: np.zeros((1, C.NUMAX), dtype=np.float64))
     cnc_d: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
-    cnc_g: np.ndarray = field(default_factory=lambda: np.zeros((1, 1), dtype=np.float64))
     cf_lstrp: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     cm_lstrp: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     cfstrp: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
@@ -326,28 +312,14 @@ class AVLState:
     cyff_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     cdff_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     spanef_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    clff_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    cyff_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    cdff_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    spanef_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     dwwake: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     env_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    # env_g is allocated but never populated — the derivative of bound-vortex midpoint normals
-    # w.r.t. design variables is not yet computed. This means dcp_g is missing the
-    # DOT(ENV_G, FGAM) contribution (see aero.f L507). To fix, compute env_g in geometry.py
-    # alongside env_d. Note: the AVL Fortran reference (amake.f L1143) contains a copy-paste
-    # bug where ENC (control-point normal) is used instead of ENV (vortex-midpoint normal) in
-    # the EMAG_G dot product — the correct implementation should use ENV there.
-    env_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     vv_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    vv_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     wv_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
-    wv_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1, 1), dtype=np.float64))
     amass: np.ndarray = field(default_factory=lambda: np.eye(3, dtype=np.float64))
     ainer: np.ndarray = field(default_factory=lambda: np.zeros((3, 3), dtype=np.float64))
 
     lcondef: np.ndarray = field(default_factory=lambda: np.zeros(C.NDMAX + 1, dtype=bool))
-    ldesdef: np.ndarray = field(default_factory=lambda: np.zeros(C.NGMAX + 1, dtype=bool))
     # Pre-allocated SFFORC work buffers (zero-filled each call).
     sfforc_spn: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
     sfforc_udrag: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
@@ -355,7 +327,6 @@ class AVLState:
     sfforc_ulift: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
     sfforc_ulift_u: np.ndarray = field(default_factory=lambda: np.zeros((3, C.NUMAX), dtype=np.float64))
     sfforc_ulift_d: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
-    sfforc_ulift_g: np.ndarray = field(default_factory=lambda: np.zeros((3, 1), dtype=np.float64))
     sfforc_ulmag_u: np.ndarray = field(default_factory=lambda: np.zeros(C.NUMAX, dtype=np.float64))
     sfforc_rc4: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
     sfforc_cfx_u: np.ndarray = field(default_factory=lambda: np.zeros(C.NUMAX, dtype=np.float64))
@@ -370,12 +341,6 @@ class AVLState:
     sfforc_cmx_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     sfforc_cmy_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     sfforc_cmz_d: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cfx_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cfy_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cfz_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cmx_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cmy_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
-    sfforc_cmz_g: np.ndarray = field(default_factory=lambda: np.zeros(1, dtype=np.float64))
     sfforc_veff: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float64))
     sfforc_veff_u: np.ndarray = field(default_factory=lambda: np.zeros((3, C.NUMAX), dtype=np.float64))
     sfforc_veffmag_u: np.ndarray = field(default_factory=lambda: np.zeros(C.NUMAX, dtype=np.float64))
@@ -395,9 +360,7 @@ class AVLState:
         dup_count = sum(1 for surf in model.surfaces if surf.yduplicate is not None)
         nsurfmax = len(model.surfaces) + dup_count
         ncontrol = len(model.control_map)
-        ndesign = 0
         ndmax = max(1, ncontrol)
-        ngmax = max(1, ndesign)
 
         nstrip = 0
         nvor = 0
@@ -464,7 +427,6 @@ class AVLState:
             nsurf=0,
             nsurfmax=nsurfmax,
             ncontrol=ncontrol,
-            ndesign=ndesign,
             nbody=nbody,
             nlnode=nlnode,
             nlmax=nlmax,
@@ -480,7 +442,7 @@ class AVLState:
             bref=float(model.header.bref),
         )
 
-        state._allocate_arrays(ndmax, ngmax, nstrmax, nvmax, nsurfmax)
+        state._allocate_arrays(ndmax, nstrmax, nvmax, nsurfmax)
 
         state.xyzref[:] = [
             model.header.xref,
@@ -542,8 +504,6 @@ class AVLState:
 
         for n in range(ncontrol):
             state.lcondef[n] = True
-        for n in range(ndesign):
-            state.ldesdef[n] = True
 
         inv_control = {idx: name for name, idx in model.control_map.items()}
         state.control_names = [inv_control[i] for i in range(ncontrol)]
@@ -558,7 +518,6 @@ class AVLState:
     def _allocate_arrays(
         self,
         ndmax: int,
-        ngmax: int,
         nstrmax: int,
         nvmax: int,
         nsurfmax: int,
@@ -588,7 +547,6 @@ class AVLState:
         self.tanle = np.zeros(nstrmax, dtype=np.float64)
         self.tante = np.zeros(nstrmax, dtype=np.float64)
         self.ainc = np.zeros(nstrmax, dtype=np.float64)
-        self.ainc_g = np.zeros((nstrmax, ngmax), dtype=np.float64)
         self.clcd = np.zeros((nstrmax, 6), dtype=np.float64)
         self.lviscstrp = np.zeros(nstrmax, dtype=bool)
         self.lstripoff = np.zeros(nstrmax, dtype=bool)
@@ -632,7 +590,6 @@ class AVLState:
         self.env = np.zeros((3, nvmax), dtype=np.float64)
         self.enc_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
         self.env_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
-        self.enc_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
 
         nlmax = max(1, self.nlmax)
         nbmax = max(1, self.nbody)
@@ -643,7 +600,6 @@ class AVLState:
 
         self.numax = C.NUMAX
         self.ndmax = ndmax
-        self.ngmax = ngmax
 
         self.aicn = np.zeros((nvmax, nvmax), dtype=np.float64)
         self.iapiv = np.zeros(nvmax, dtype=np.int32)
@@ -651,10 +607,8 @@ class AVLState:
         self.gam = np.zeros(self.nvor if self.nvor > 0 else nvmax, dtype=np.float64)
         self.gam_u_0 = np.zeros((nvmax, C.NUMAX), dtype=np.float64)
         self.gam_u_d = np.zeros((nvmax, C.NUMAX, ndmax), dtype=np.float64)
-        self.gam_u_g = np.zeros((nvmax, C.NUMAX, ngmax), dtype=np.float64)
         self.gam_u = np.zeros((nvmax, C.NUMAX), dtype=np.float64)
         self.gam_d = np.zeros((nvmax, ndmax), dtype=np.float64)
-        self.gam_g = np.zeros((nvmax, ngmax), dtype=np.float64)
         self.wc_gam = np.zeros((3, nvmax, nvmax), dtype=np.float64)
         self.wv_gam = np.zeros((3, nvmax, nvmax), dtype=np.float64)
         self.wcsrd_u = np.zeros((3, nvmax, C.NUMAX), dtype=np.float64)
@@ -677,10 +631,6 @@ class AVLState:
         self.vv_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
         self.wc_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
         self.wv_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
-        self.vc_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
-        self.vv_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
-        self.wc_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
-        self.wv_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
 
         numax = C.NUMAX
         self.clstrp = np.zeros(nstrmax, dtype=np.float64)
@@ -689,17 +639,14 @@ class AVLState:
         self.chinge = np.zeros(ndmax, dtype=np.float64)
         self.chinge_u = np.zeros((ndmax, numax), dtype=np.float64)
         self.chinge_d = np.zeros((ndmax, ndmax), dtype=np.float64)
-        self.chinge_g = np.zeros((ndmax, ngmax), dtype=np.float64)
         self.delcon = np.zeros(ndmax, dtype=np.float64)
         self.dcp = np.zeros(nvmax, dtype=np.float64)
         self.dcp_u = np.zeros((nvmax, numax), dtype=np.float64)
         self.dcp_d = np.zeros((nvmax, ndmax), dtype=np.float64)
-        self.dcp_g = np.zeros((nvmax, ngmax), dtype=np.float64)
         self.dcpb = np.zeros((3, nlmax), dtype=np.float64)
         self.cnc = np.zeros(nstrmax, dtype=np.float64)
         self.cnc_u = np.zeros((nstrmax, numax), dtype=np.float64)
         self.cnc_d = np.zeros((nstrmax, ndmax), dtype=np.float64)
-        self.cnc_g = np.zeros((nstrmax, ngmax), dtype=np.float64)
         self.cf_lstrp = np.zeros((3, nstrmax), dtype=np.float64)
         self.cm_lstrp = np.zeros((3, nstrmax), dtype=np.float64)
         self.cfstrp = np.zeros((3, nstrmax), dtype=np.float64)
@@ -772,18 +719,10 @@ class AVLState:
         self.cyff_d = np.zeros(ndmax, dtype=np.float64)
         self.cdff_d = np.zeros(ndmax, dtype=np.float64)
         self.spanef_d = np.zeros(ndmax, dtype=np.float64)
-        self.clff_g = np.zeros(ngmax, dtype=np.float64)
-        self.cyff_g = np.zeros(ngmax, dtype=np.float64)
-        self.cdff_g = np.zeros(ngmax, dtype=np.float64)
-        self.spanef_g = np.zeros(ngmax, dtype=np.float64)
         self.dwwake = np.zeros(nstrmax, dtype=np.float64)
         self.env_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
-        self.env_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
         self.vv_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
-        self.vv_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
         self.wv_d = np.zeros((3, nvmax, ndmax), dtype=np.float64)
-        self.wv_g = np.zeros((3, nvmax, ngmax), dtype=np.float64)
-        self.ldesdef = np.zeros(ngmax, dtype=bool)
 
         icmax = C.ICTOT + ndmax
         ivmax = C.IVTOT + ndmax
@@ -796,7 +735,6 @@ class AVLState:
         self.sfforc_udrag_u = np.zeros((3, numax), dtype=np.float64)
         self.sfforc_ulift_u = np.zeros((3, numax), dtype=np.float64)
         self.sfforc_ulift_d = np.zeros((3, ndmax), dtype=np.float64)
-        self.sfforc_ulift_g = np.zeros((3, ngmax), dtype=np.float64)
         self.sfforc_ulmag_u = np.zeros(numax, dtype=np.float64)
         self.sfforc_cfx_u = np.zeros(numax, dtype=np.float64)
         self.sfforc_cfy_u = np.zeros(numax, dtype=np.float64)
@@ -810,12 +748,6 @@ class AVLState:
         self.sfforc_cmx_d = np.zeros(ndmax, dtype=np.float64)
         self.sfforc_cmy_d = np.zeros(ndmax, dtype=np.float64)
         self.sfforc_cmz_d = np.zeros(ndmax, dtype=np.float64)
-        self.sfforc_cfx_g = np.zeros(ngmax, dtype=np.float64)
-        self.sfforc_cfy_g = np.zeros(ngmax, dtype=np.float64)
-        self.sfforc_cfz_g = np.zeros(ngmax, dtype=np.float64)
-        self.sfforc_cmx_g = np.zeros(ngmax, dtype=np.float64)
-        self.sfforc_cmy_g = np.zeros(ngmax, dtype=np.float64)
-        self.sfforc_cmz_g = np.zeros(ngmax, dtype=np.float64)
         self.sfforc_veff_u = np.zeros((3, numax), dtype=np.float64)
         self.sfforc_veffmag_u = np.zeros(numax, dtype=np.float64)
 

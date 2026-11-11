@@ -20,28 +20,23 @@ def _make_mock_state() -> AVLState:
     nvor = 2
     nlnode = 2
     ncontrol = 1
-    ndesign = 1
     numax = C.NUMAX
     ndmax = C.NDMAX
-    ngmax = C.NGMAX
 
     state = AVLState(
         nvor=nvor,
         nvmax=nvor,
         nlnode=nlnode,
         ncontrol=ncontrol,
-        ndesign=ndesign,
         numax=numax,
         ndmax=ndmax,
-        ngmax=ngmax,
         nlmax=nlnode,
     )
-    state._allocate_arrays(ndmax, ngmax, 1, nvor, 1)
+    state._allocate_arrays(ndmax, 1, nvor, 1)
 
     state.vinf[:] = [10.0, -2.0, 1.0]
     state.wrot[:] = [0.1, -0.2, 0.3]
     state.delcon[0] = 0.2
-    state.deldes[0] = -0.1
 
     for k in range(3):
         for i in range(nvor):
@@ -51,9 +46,15 @@ def _make_mock_state() -> AVLState:
 
     for i in range(nvor):
         for iu in range(numax):
-            state.gam_u_0[i, iu] = 0.1 * (i + 1) + 0.01 * (iu + 1)
+            # The fixture was generated with one design variable (deldes = -0.1,
+            # gam_u_g as below). Design variables are not ported, so its
+            # contribution to gam_u is folded into gam_u_0 to keep the
+            # reference values valid for every non-design output.
+            state.gam_u_0[i, iu] = (
+                0.1 * (i + 1) + 0.01 * (iu + 1)
+                + (-0.1) * (-0.03 * (i + 1) + 0.002 * (iu + 1))
+            )
             state.gam_u_d[i, iu, 0] = 0.02 * (i + 1) + 0.001 * (iu + 1)
-            state.gam_u_g[i, iu, 0] = -0.03 * (i + 1) + 0.002 * (iu + 1)
 
     for l in range(nlnode):
         for iu in range(numax):
@@ -70,14 +71,24 @@ def _make_mock_state() -> AVLState:
     return state
 
 
+def _drop_design_outputs(values: list[float], nvor: int) -> list[float]:
+    """Remove the fixture's design-variable entries (gam_g and vc_g).
+
+    The fixture layout is gam, gam_d, gam_g, src, dbl, wc, wv, wc_u, wv_u,
+    vc_d, vc_g; gam_g has ``nvor`` entries and vc_g ``3 * nvor``.
+    """
+    values = list(values)
+    del values[len(values) - 3 * nvor:]
+    del values[2 * nvor:3 * nvor]
+    return values
+
+
 def _extract_outputs(state: AVLState) -> list[float]:
     out: list[float] = []
     for i in range(state.nvor):
         out.append(float(state.gam[i]))
     for i in range(state.nvor):
         out.append(float(state.gam_d[i, 0]))
-    for i in range(state.nvor):
-        out.append(float(state.gam_g[i, 0]))
     for l in range(state.nlnode):
         out.append(float(state.src[l]))
     for l in range(state.nlnode):
@@ -98,9 +109,6 @@ def _extract_outputs(state: AVLState) -> list[float]:
     for i in range(state.nvor):
         for k in range(3):
             out.append(float(state.vc_d[k, i, 0]))
-    for i in range(state.nvor):
-        for k in range(3):
-            out.append(float(state.vc_g[k, i, 0]))
     return out
 
 
@@ -112,6 +120,7 @@ def test_gamsum_velsum_matches_js_fixture(fixtures_dir):
     gamsum(state)
     velsum(state)
     actual = _extract_outputs(state)
+    expected = _drop_design_outputs(expected, state.nvor)
     np.testing.assert_allclose(actual, expected, rtol=0, atol=1e-4)
 
 
@@ -131,6 +140,7 @@ def test_gamsum_velsum_matches_fortran_ref(ref_binary, fixtures_dir):
     gamsum(state)
     velsum(state)
     actual = _extract_outputs(state)
+    ref_tail = _drop_design_outputs(ref_tail, state.nvor)
     np.testing.assert_allclose(actual, ref_tail, rtol=0, atol=1e-4)
 
 
