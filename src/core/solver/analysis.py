@@ -246,7 +246,7 @@ def get_system_matrices(
 
     Notes
     -----
-    Re-solves the run case first, as :meth:`eigenvalues` does.
+    Re-solves the run case first if needed, as :meth:`eigenvalues` does.
     """
     from openavl.analysis.amode import apply_body_axis_signs, build_appmat, build_sysmat
 
