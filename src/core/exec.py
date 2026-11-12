@@ -54,7 +54,8 @@ def exec_solve(
     used by older AVL builds is omitted.
     """
     _ = info
-    check_constraints(state, ir)
+    if niter > 0:  # constraints are only used by the Newton trim
+        check_constraints(state, ir)
     dir_ = (-1.0 if state.lnasa_sa else 1.0)
     _raise_if_cancelled(cancel_check)
 

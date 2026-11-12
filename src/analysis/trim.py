@@ -66,10 +66,18 @@ def setup_trim(state: AVLState, mode: int, ir: int = 0) -> None:
 
 def edit_trim_parameter(state: AVLState, mode: int, ipar: int, value: float, ir: int = 0) -> None:
     """Store ``value``, zero its dependents (:data:`TRIM_DEPENDENTS`) and re-apply the trim."""
+    if ipar == C.IPPHI:
+        _check_bank(mode, value)  # before anything is written, so a rejected value changes nothing
     state.parval[ipar, ir] = value
     for dependent in TRIM_DEPENDENTS[mode].get(ipar, ()):
         state.parval[dependent, ir] = 0.0
     apply_trim(state, mode, ir)
+
+
+def _check_bank(ktrim: int, phi: float) -> None:
+    """Same limit as AVL's trim menu: cos(phi) <= 0 has no level-turn solution."""
+    if ktrim == 1 and not -90.0 < phi < 90.0:
+        raise ValueError(f"Bank angle must satisfy -90 < bank < 90 for trim; got {phi}.")
 
 
 def apply_trim(state: AVLState, ktrim: int, ir: int = 0) -> None:
@@ -88,10 +96,7 @@ def apply_trim(state: AVLState, ktrim: int, ir: int = 0) -> None:
     fac = state.parval[C.IPFAC, ir]
     rmass = state.parval[C.IPMASS, ir]
 
-    if ktrim == 1 and not -90.0 < phi < 90.0:
-        # Same limit as AVL's trim menu; cos(phi) <= 0 has no level-turn solution.
-        raise ValueError(f"Bank angle must satisfy -90 < bank < 90 for trim; got {phi}.")
-
+    _check_bank(ktrim, phi)
     sinp = math.sin(phi * state.dtr)
     cosp = math.cos(phi * state.dtr)
 

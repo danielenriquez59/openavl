@@ -134,6 +134,9 @@ def test_parameters_without_trim_are_stored_as_given():
 
 
 def test_bank_of_90_degrees_is_rejected_in_level_trim():
-    solver = _trimmed()
+    solver = _solve(_trimmed())
+    before = solver.state.parval[:, 0].copy()
     with pytest.raises(ValueError, match="-90 < bank < 90"):
         solver.set_parameter("bank", 90.0)
+    # A rejected value leaves the run case as it was (bank and V untouched).
+    assert (solver.state.parval[:, 0] == before).all()

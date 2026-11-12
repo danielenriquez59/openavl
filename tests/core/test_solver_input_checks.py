@@ -81,6 +81,7 @@ def test_constraint_imposed_twice_raises_before_solving():
     solver.set_constraint("elevator", "cl", 0.5)
     with pytest.raises(ValueError, match=r"more than once: CL is imposed by alpha, elevator"):
         solver.execute_run()
+    solver.execute_run(max_iter=0)  # forces at fixed variables ignore constraints
 
 
 def test_reassigning_constraints_one_at_a_time_is_allowed():
