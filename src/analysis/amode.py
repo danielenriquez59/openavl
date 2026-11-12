@@ -507,48 +507,51 @@ def identify_modes(
     bref: float,
     unitl: float,
 ) -> list[FlightMode]:
-    """Identify classical flight modes from eigenvalues and eigenvectors."""
-    lon_idx = [C.JEU, C.JEW, C.JEQ, C.JETH]
-    lat_idx = [C.JEV, C.JEP, C.JER, C.JEPH]
-    pos_idx = [C.JEX, C.JEY, C.JEZ, C.JEPS]
+    """Name classical flight modes from their eigenvector shapes.
 
+    The state vector mixes units (m/s, rad/s, rad, m), so each eigenvector is
+    first put in comparable, angle-like terms: velocities over V (u/V, and the
+    angles of attack and sideslip w/V, v/V), rates over |lambda| (the angle
+    each rate sweeps per time constant), attitude angles as they are. Position
+    and heading are integrals of the other states and carry no information.
+    Then: longitudinal (u, w, q, theta) vs lateral (v, p, r, phi) share; a
+    longitudinal oscillation is the phugoid when speed dominates (|u| > |w|),
+    else the short period; a lateral oscillation is the Dutch roll; a lateral
+    real mode is roll subsidence when roll rate dominates (|p| > |r|), else
+    the spiral. No frequency or time-constant thresholds, so small and large
+    aircraft are treated alike.
+
+    shortcut: body-axis shares; in steep turns (bank above about 45 deg) the
+    turn rate splits between q and r, and a slow real mode can be named
+    longitudinal subsidence instead of spiral. Rotating the rates by the bank
+    angle mislabels the Dutch roll instead, so a fix needs a coupled-mode rule.
+    """
     modes: list[FlightMode] = []
     used_names: set[str] = set()
 
     for idx, value in enumerate(eigenvalues):
         vec = eigenvectors[:, idx]
-        mag = np.abs(vec)
-        total = float(np.sum(mag * mag)) or 1.0
-        lon_part = float(np.sum(mag[lon_idx] ** 2)) / total
-        lat_part = float(np.sum(mag[lat_idx] ** 2)) / total
-        pos_part = float(np.sum(mag[pos_idx] ** 2)) / total
+        rate_scale = max(abs(value), 1e-12)
+        u, v, w = (abs(vec[j]) / vee for j in (C.JEU, C.JEV, C.JEW))
+        p, q, r = (abs(vec[j]) / rate_scale for j in (C.JEP, C.JEQ, C.JER))
+        phi, theta = abs(vec[C.JEPH]), abs(vec[C.JETH])
+        lon = u * u + w * w + q * q + theta * theta
+        lat = v * v + p * p + r * r + phi * phi
+        oscillatory = abs(value.imag) > 1e-6 * rate_scale
 
-        sigma = value.real
-        omega = abs(value.imag)
-        metrics = compute_eigenmode_metrics(value, vee=vee, bref=bref, unitl=unitl)
-        freq_hz = metrics.frequency_hz
-        damping = metrics.damping_ratio
-        tau = metrics.time_constant
-
-        if pos_part > 0.5:
+        if lon + lat == 0.0:
             name = "position/heading"
-        elif lon_part >= lat_part:
-            if omega > 0.05 * abs(sigma) and freq_hz > 0.2:
-                name = "short period"
-            elif omega > 1e-8:
-                name = "phugoid"
-            else:
+        elif lon >= lat:
+            if not oscillatory:
                 name = "longitudinal subsidence"
-        else:
-            if omega > 0.05 * abs(sigma) and omega > 1e-8:
-                name = "Dutch roll"
-            elif abs(sigma) > 1e-8:
-                if tau > 5.0:
-                    name = "spiral"
-                else:
-                    name = "roll subsidence"
             else:
-                name = "lateral mode"
+                name = "phugoid" if u > w else "short period"
+        elif oscillatory:
+            name = "Dutch roll"
+        else:
+            name = "roll subsidence" if p > r else "spiral"
+
+        metrics = compute_eigenmode_metrics(value, vee=vee, bref=bref, unitl=unitl)
 
         base = name
         suffix = 2
@@ -562,9 +565,9 @@ def identify_modes(
                 name=name,
                 eigenvalue=value,
                 eigenvector=vec,
-                frequency_hz=freq_hz,
-                damping_ratio=damping,
-                time_constant=tau,
+                frequency_hz=metrics.frequency_hz,
+                damping_ratio=metrics.damping_ratio,
+                time_constant=metrics.time_constant,
                 period_s=metrics.period_s,
                 time_to_half_s=metrics.time_to_half_s,
             )

@@ -35,10 +35,13 @@ def _solve(solver: AVLSolver, case: dict[str, float]) -> None:
 
 
 @pytest.mark.reference
-@pytest.mark.parametrize("use_jit", [True, False])
-def test_jax_solver_viscous_drag_matches_fortran(use_jit: bool) -> None:
-    """Viscous drag is on for a CDCL model and uses the strip lift direction."""
-    solver = JaxAVLSolver(CDCL_AVL, use_jit=use_jit)
+def test_jax_solver_viscous_drag_matches_fortran() -> None:
+    """Viscous drag is on for a CDCL model and uses the strip lift direction.
+
+    The jitted path only; the eager branch of JaxAVLSolver.run runs the same
+    analysis and is covered by the body-only test below.
+    """
+    solver = JaxAVLSolver(CDCL_AVL)
     _solve(solver.numpy_solver, CASE)
     assert float(solver.run().CD) == pytest.approx(FORTRAN_CD, abs=1e-9)
 

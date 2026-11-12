@@ -1112,10 +1112,22 @@ ctrl = solver.get_control_derivatives(axis=<span class="st">"stability"</span>)
         (<code>CL_a</code>, <code>Cm_a</code>, &hellip;) in a turning or rolling case.
         AVL's formula for how the body rates change with alpha carries a stray axis sign,
         so with its default NASA axes its alpha derivatives differ from the finite-difference
-        values whenever the rates are non-zero (0.8% in <code>CL_a</code> and 1% in
-        <code>Cm_a</code> on Supra at 30&deg; bank). OpenAVL uses the correct expression,
-        which AVL's own source comments state, so these values differ slightly from AVL's
-        printout in turns. With zero rates the two agree.
+        values whenever the rates are non-zero. The longitudinal terms move little (0.8% in
+        <code>CL_a</code> and 1% in <code>Cm_a</code> on Supra at 30&deg; bank), but the
+        lateral ones can be far off: on <code>plane.avl</code> with pb/2V&nbsp;=&nbsp;0.04,
+        qc/2V&nbsp;=&nbsp;0.02, rb/2V&nbsp;=&nbsp;&minus;0.03, AVL prints
+        <code>Cl_a</code>&nbsp;=&nbsp;&minus;0.0138 and <code>Cn_a</code>&nbsp;=&nbsp;&minus;0.0164,
+        while a finite difference of the forces gives &minus;0.0362 and &minus;0.0254.
+        OpenAVL uses the correct expression, which AVL's own source comments state, and
+        matches the finite differences. With zero rates the two agree.
+      </p>
+
+      <p>
+        <strong>Side force from CDREF:</strong> the baseline drag <code>CDREF</code> acts
+        along the freestream, so with sideslip it adds a side force. AVL adds that term to
+        <code>CY</code> but not to its derivatives; OpenAVL adds it to both. With
+        <code>CDREF</code>&nbsp;=&nbsp;0.015 on Supra, <code>CY_b</code> is &minus;0.2482
+        (the finite-difference value) where AVL prints &minus;0.2333.
       </p>
 
       <p>

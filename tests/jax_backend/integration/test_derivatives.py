@@ -62,217 +62,89 @@ def _stability_moments(flow: FlowCondition, result_cm: jnp.ndarray, lnasa_sa: bo
 
 def _perturb_flow(flow: FlowCondition, field: str, index: int | None, delta: float) -> FlowCondition:
     """Return a copy of ``flow`` with one component perturbed."""
-    if field == "alfa":
-        return flow._replace(alfa=flow.alfa + delta)
-    if field == "beta":
-        return flow._replace(beta=flow.beta + delta)
-    if field == "wrot":
-        wrot = flow.wrot.at[index].add(delta)
-        return flow._replace(wrot=wrot)
-    if field == "delcon":
-        delcon = flow.delcon.at[index].add(delta)
-        return flow._replace(delcon=delcon)
-    if field == "mach":
-        return flow._replace(mach=flow.mach + delta)
-    raise KeyError(field)
+    value = getattr(flow, field)
+    value = value + delta if index is None else value.at[index].add(delta)
+    return flow._replace(**{field: value})
 
 
-def _central_difference(
-    geom,
-    refs,
-    flow: FlowCondition,
-    lnasa_sa: bool,
-    output: str,
-    field: str,
-    index: int | None = None,
-    eps: float = FD_STEP,
-) -> float:
-    """Central finite-difference derivative of a scalar output w.r.t. one flow input."""
+OUTPUTS = ("CL", "CD", "CY", "Cl", "Cm", "Cn")  # moments in stability axes
+VARIABLES = {"a": ("alfa", None), "b": ("beta", None), "p": ("wrot", 0), "q": ("wrot", 1), "r": ("wrot", 2)}
 
-    def scalar(f: FlowCondition) -> float:
+
+def _derivative_tools(state):
+    """AD Jacobian of all six outputs, and a cached central difference per input.
+
+    One ``jacrev`` gives every entry, and each finite-difference input is
+    perturbed once (through a jit-compiled run) for all six outputs.
+    """
+    geom, refs, flow = snapshot_analysis_geometry(state), snapshot_refs(state), snapshot_flow(state)
+
+    def outputs(f: FlowCondition) -> jnp.ndarray:
         result = run_analysis(f, geom, refs)
-        if output == "CL":
-            return float(result.CL)
-        if output == "CD":
-            return float(result.CD)
-        if output == "CY":
-            return float(result.CY)
-        if output in ("Cl", "Cm", "Cn"):
-            moments = _stability_moments(f, result.CM, lnasa_sa)
-            idx = {"Cl": 0, "Cm": 1, "Cn": 2}[output]
-            return float(moments[idx])
-        raise KeyError(output)
+        return jnp.concatenate([
+            jnp.stack([result.CL, result.CD, result.CY]),
+            _stability_moments(f, result.CM, state.lnasa_sa),
+        ])
 
-    fp = _perturb_flow(flow, field, index, eps)
-    fm = _perturb_flow(flow, field, index, -eps)
-    return (scalar(fp) - scalar(fm)) / (2.0 * eps)
+    jac = jax.jacrev(outputs)(flow)
+    run = jax.jit(outputs)
+    cache: dict = {}
 
+    def central_difference(field: str, index: int | None = None) -> np.ndarray:
+        if (field, index) not in cache:
+            plus = run(_perturb_flow(flow, field, index, FD_STEP))
+            minus = run(_perturb_flow(flow, field, index, -FD_STEP))
+            cache[field, index] = np.asarray(plus - minus) / (2.0 * FD_STEP)
+        return cache[field, index]
 
-def _jax_partial(jac, output: str, field: str, index: int | None = None, *, state=None) -> float:
-    """Extract one JAX Jacobian entry from ``jacrev(run_analysis)``."""
-    out = getattr(jac, output)
-    if field == "alfa":
-        return float(out.alfa)
-    if field == "beta":
-        return float(out.beta)
-    if field == "wrot":
-        val = float(out.wrot[index])
-        if state is not None and index == 1:
-            val *= 2.0 / float(state.cref)
-        return val
-    if field == "delcon":
-        return float(out.delcon[index])
-    if field == "mach":
-        return float(out.mach)
-    raise KeyError(field)
-
-
-def _scale_rate_derivative(value: float, field: str, index: int | None, state) -> float:
-    """Apply AVL ``q`` scaling for pitch-rate finite-difference checks."""
-    if field == "wrot" and index == 1:
-        return value * (2.0 / float(state.cref))
-    return value
-
-
-def _hand_coded_value(derivs: StabilityDerivatives, name: str) -> float:
-    return float(getattr(derivs, name))
+    return jac, central_difference
 
 
 def _compare_derivative_set(solver: AVLSolver, *, label: str) -> None:
     """Three-way compare for stability-axis force/moment derivatives."""
     state = solver.state
-    geom = snapshot_analysis_geometry(state)
-    flow = snapshot_flow(state)
-    refs = snapshot_refs(state)
     derivs = compute_stability_derivatives(state)
-    jac = jax.jacrev(run_analysis)(flow, geom, refs)
+    jac, central_difference = _derivative_tools(state)
 
     # Full FD triple-check only on the smallest model (plane). For larger models,
     # validate JAX vs hand-coded only. wrot-p/r has no hand reference, so we
     # keep a two-case spot-check for CL_p and CL_r on all geometries.
-    _full_fd = (label == "plane")
-    _spot_wrot_pr = {("CL", "wrot", 0), ("CL", "wrot", 2)}
+    full_fd = label == "plane"
+    tol = JAX_TOL_BODY if label == "supra" else JAX_TOL
+    fd_tol = JAX_TOL_BODY if label == "supra" else FD_TOL
+    q_scale = 2.0 / float(state.cref)  # AVL's q is qc/2V
 
-    # Differentiate the full output transformation, including its alpha term.
-    moment_jac = jax.jacrev(lambda f: _stability_moments(
-        f, run_analysis(f, geom, refs).CM, state.lnasa_sa
-    ))(flow)
-
-    def stability_jac_wrt(field: str, index: int | None = None):
-        values = np.asarray(getattr(moment_jac, field))
-        return values if index is None else values[:, index]
-
-    scalar_cases = [
-        ("CL", "CL_a", "alfa", None),
-        ("CL", "CL_b", "beta", None),
-        ("CL", "CL_p", "wrot", 0),
-        ("CL", "CL_q", "wrot", 1),
-        ("CL", "CL_r", "wrot", 2),
-        ("CD", "CD_a", "alfa", None),
-        ("CD", "CD_b", "beta", None),
-        ("CD", "CD_p", "wrot", 0),
-        ("CD", "CD_q", "wrot", 1),
-        ("CD", "CD_r", "wrot", 2),
-        ("CY", "CY_a", "alfa", None),
-        ("CY", "CY_b", "beta", None),
-        ("CY", "CY_p", "wrot", 0),
-        ("CY", "CY_q", "wrot", 1),
-        ("CY", "CY_r", "wrot", 2),
-    ]
-    moment_cases = [
-        ("Cl", "Cl_a", "alfa", None),
-        ("Cl", "Cl_b", "beta", None),
-        ("Cl", "Cl_p", "wrot", 0),
-        ("Cl", "Cl_q", "wrot", 1),
-        ("Cl", "Cl_r", "wrot", 2),
-        ("Cm", "Cm_a", "alfa", None),
-        ("Cm", "Cm_b", "beta", None),
-        ("Cm", "Cm_p", "wrot", 0),
-        ("Cm", "Cm_q", "wrot", 1),
-        ("Cm", "Cm_r", "wrot", 2),
-        ("Cn", "Cn_a", "alfa", None),
-        ("Cn", "Cn_b", "beta", None),
-        ("Cn", "Cn_p", "wrot", 0),
-        ("Cn", "Cn_q", "wrot", 1),
-        ("Cn", "Cn_r", "wrot", 2),
-    ]
-
-    for out, ref_name, field, index in scalar_cases:
-        hand = _hand_coded_value(derivs, ref_name)
-        jax_val = _jax_partial(jac, out, field, index, state=state)
-        tol = JAX_TOL_BODY if label == "supra" else JAX_TOL
-        if field == "wrot" and index in (0, 2):
-            if _full_fd or (out, field, index) in _spot_wrot_pr:
-                fd_val = _scale_rate_derivative(
-                    _central_difference(geom, refs, flow, state.lnasa_sa, out, field, index),
-                    field,
-                    index,
-                    state,
+    for i, out in enumerate(OUTPUTS):
+        for var, (field, index) in VARIABLES.items():
+            name = f"{out}_{var}"
+            scale = q_scale if var == "q" else 1.0
+            column = np.asarray(getattr(jac, field))
+            jax_val = float(column[i] if index is None else column[i, index]) * scale
+            if var in ("p", "r"):
+                if full_fd or out == "CL":
+                    fd_val = float(central_difference(field, index)[i])
+                    assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
+                        f"{label} {name}: JAX {jax_val} vs FD {fd_val}"
+                    )
+                continue
+            hand = float(getattr(derivs, name))
+            assert jax_val == pytest.approx(hand, abs=tol, rel=tol), (
+                f"{label} {name}: JAX {jax_val} vs hand {hand}"
+            )
+            if full_fd:
+                fd_val = float(central_difference(field, index)[i]) * scale
+                assert fd_val == pytest.approx(hand, abs=fd_tol, rel=fd_tol), (
+                    f"{label} {name}: FD {fd_val} vs hand {hand}"
                 )
-                assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
-                    f"{label} {ref_name}: JAX {jax_val} vs FD {fd_val}"
-                )
-            continue
-        fd_tol = JAX_TOL_BODY if label == "supra" else FD_TOL
-        assert jax_val == pytest.approx(hand, abs=tol, rel=tol), (
-            f"{label} {ref_name}: JAX {jax_val} vs hand {hand}"
-        )
-        if _full_fd:
-            fd_val = _scale_rate_derivative(
-                _central_difference(geom, refs, flow, state.lnasa_sa, out, field, index),
-                field,
-                index,
-                state,
-            )
-            assert fd_val == pytest.approx(hand, abs=fd_tol, rel=fd_tol), (
-                f"{label} {ref_name}: FD {fd_val} vs hand {hand}"
-            )
-
-    moment_map = {"Cl": 0, "Cm": 1, "Cn": 2}
-    q_scale = 2.0 / float(state.cref)
-    for out, ref_name, field, index in moment_cases:
-        hand = _hand_coded_value(derivs, ref_name)
-        jax_cl, jax_cm, jax_cn = stability_jac_wrt(field, index)
-        jax_val = (jax_cl, jax_cm, jax_cn)[moment_map[out]]
-        if field == "wrot" and index == 1:
-            jax_val *= q_scale
-        tol = JAX_TOL_BODY if label == "supra" else JAX_TOL
-        if field == "wrot" and index in (0, 2):
-            if _full_fd:
-                fd_val = _scale_rate_derivative(
-                    _central_difference(geom, refs, flow, state.lnasa_sa, out, field, index),
-                    field,
-                    index,
-                    state,
-                )
-                assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL)
-            continue
-        fd_tol = JAX_TOL_BODY if label == "supra" else FD_TOL
-        assert jax_val == pytest.approx(hand, abs=tol, rel=tol), (
-            f"{label} {ref_name}: JAX {jax_val} vs hand {hand}"
-        )
-        if _full_fd:
-            fd_val = _scale_rate_derivative(
-                _central_difference(geom, refs, flow, state.lnasa_sa, out, field, index),
-                field,
-                index,
-                state,
-            )
-            assert fd_val == pytest.approx(hand, abs=fd_tol, rel=fd_tol), (
-                f"{label} {ref_name}: FD {fd_val} vs hand {hand}"
-            )
 
     rtd = 180.0 / np.pi
     for n, name in enumerate(state.control_names[: state.ncontrol]):
-        for out in ("CL", "CD", "CY", "Cl", "Cm", "Cn"):
+        for i, out in enumerate(OUTPUTS):
             hand = float(getattr(derivs, out + "_d")[name])
-            if out in moment_map:
-                jax_val = float(moment_jac.delcon[moment_map[out], n]) * rtd
-            else:
-                jax_val = _jax_partial(jac, out, "delcon", n) * rtd
+            jax_val = float(jac.delcon[i, n]) * rtd
             assert jax_val == pytest.approx(hand, abs=JAX_TOL, rel=JAX_TOL)
-            if _full_fd or n == 0:
-                fd_val = _central_difference(geom, refs, flow, state.lnasa_sa, out, "delcon", n) * rtd
+            if full_fd or n == 0:
+                fd_val = float(central_difference("delcon", n)[i]) * rtd
                 assert fd_val == pytest.approx(hand, abs=FD_TOL, rel=FD_TOL)
 
 
@@ -305,32 +177,21 @@ def test_mach_derivative_matches_finite_difference() -> None:
     geom = snapshot_analysis_geometry(state)
     flow = snapshot_flow(state)
     refs = snapshot_refs(state)
-    jac = jax.jacrev(run_analysis)(flow, geom, refs)
 
-    for output in ("CL", "CD"):
-        jax_val = _jax_partial(jac, output, "mach")
-        fd_val = _central_difference(geom, refs, flow, state.lnasa_sa, output, "mach")
-        assert abs(fd_val) > 1e-8, f"finite-difference d({output})/d(mach) unexpectedly ~0"
-        assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
-            f"d({output})/d(mach): JAX {jax_val} vs FD {fd_val}"
-        )
+    def outputs(f: FlowCondition) -> jnp.ndarray:  # CL, CD, CY, body-axis CM
+        result = run_analysis(f, geom, refs)
+        return jnp.concatenate([jnp.stack([result.CL, result.CD, result.CY]), result.CM])
 
-    # CY can be Mach-insensitive on symmetric wings; still verify JAX matches FD.
-    jax_cy = _jax_partial(jac, "CY", "mach")
-    fd_cy = _central_difference(geom, refs, flow, state.lnasa_sa, "CY", "mach")
-    assert jax_cy == pytest.approx(fd_cy, abs=FD_TOL, rel=FD_TOL), (
-        f"d(CY)/d(mach): JAX {jax_cy} vs FD {fd_cy}"
-    )
+    jac_mach = np.asarray(jax.jacrev(outputs)(flow).mach)
+    run = jax.jit(outputs)
+    fd = np.asarray(
+        run(_perturb_flow(flow, "mach", None, FD_STEP)) - run(_perturb_flow(flow, "mach", None, -FD_STEP))
+    ) / (2.0 * FD_STEP)
 
-    for i, out in enumerate(("Cl", "Cm", "Cn")):
-        jax_val = float(jac.CM.mach[i])
-
-        def scalar_cm(f: FlowCondition, _i: int = i) -> float:
-            return float(run_analysis(f, geom, refs).CM[_i])
-
-        fp = _perturb_flow(flow, "mach", None, FD_STEP)
-        fm = _perturb_flow(flow, "mach", None, -FD_STEP)
-        fd_val = (scalar_cm(fp) - scalar_cm(fm)) / (2.0 * FD_STEP)
-        assert jax_val == pytest.approx(fd_val, abs=FD_TOL, rel=FD_TOL), (
-            f"d(CM[{i}])/d(mach) ({out}): JAX {jax_val} vs FD {fd_val}"
+    for i, output in enumerate(("CL", "CD", "CY", "CMx", "CMy", "CMz")):
+        if output in ("CL", "CD"):
+            assert abs(fd[i]) > 1e-8, f"finite-difference d({output})/d(mach) unexpectedly ~0"
+        # CY can be Mach-insensitive on symmetric wings; still verify JAX matches FD.
+        assert jac_mach[i] == pytest.approx(fd[i], abs=FD_TOL, rel=FD_TOL), (
+            f"d({output})/d(mach): JAX {jac_mach[i]} vs FD {fd[i]}"
         )

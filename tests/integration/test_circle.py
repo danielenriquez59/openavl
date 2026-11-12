@@ -1,4 +1,16 @@
-"""End-to-end integration test for circle.avl (analytical circular disk wing)."""
+"""End-to-end integration test for circle.avl (circular planform wing).
+
+Reference values are Fortran AVL 3.52 through ``optvl`` 2.5.0 at alpha =
+5.72958 deg (0.1 rad), from the geometries folder::
+
+    from optvl import OVLSolver
+    o = OVLSolver(geo_file="circle.avl")
+    o.set_constraint("alpha", "alpha", 5.72958); o.execute_run()
+    o.get_total_forces()  # CL, CD (near-field), CDff (Trefftz), e
+
+OpenAVL agrees to <= 2e-9. CL is linear in alpha here, so one point also pins
+the lift slope.
+"""
 
 from __future__ import annotations
 
@@ -9,48 +21,20 @@ from openavl.solver import AVLSolver
 from tests.helpers import GEOMETRIES_DIR
 
 CIRCLE_AVL = GEOMETRIES_DIR / "circle.avl"
-TOL_CL = 5e-3
-TOL_ALPHA = 0.05
-TOL_SLOPE_REL = 5e-2  # circular disk discretization vs header slope (~4%)
-
-REF_CL_AT_5_73 = 0.185425
-REF_CL_ALPHA_SLOPE = 1.790750
-
-
-def build_circle_solver(alpha_deg: float) -> AVLSolver:
-    """Build circle solver with alpha constrained directly to alpha_deg."""
-    if not CIRCLE_AVL.is_file():
-        pytest.skip(f"circle.avl not found: {CIRCLE_AVL}")
-
-    solver = AVLSolver(CIRCLE_AVL)
-    solver.set_constraint("alpha", "alpha", alpha_deg)
-    return solver
-
+TOL = 1e-7
+REF = {"CL": 0.18542532, "CD": 0.00759339806, "CDFF": 0.00823106896, "SPANEF": 1.05289099}
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.mark.reference
 def test_circle_alpha_direct():
-    """Alpha fixed at 5.73 deg; CL matches AVL circle.run reference."""
-    solver = build_circle_solver(5.72958)
+    """Alpha fixed at 0.1 rad; lift, near-field and Trefftz drag match AVL."""
+    solver = AVLSolver(CIRCLE_AVL)
+    solver.set_constraint("alpha", "alpha", 5.72958)
     solver.execute_run(max_iter=20)
     results = solver.get_results()
 
     assert results["converged"]
-    assert results["alpha_deg"] == pytest.approx(5.72958, abs=TOL_ALPHA)
-    assert results["CL"] == pytest.approx(REF_CL_AT_5_73, abs=TOL_CL)
-
-
-@pytest.mark.reference
-def test_circle_cl_alpha_slope():
-    """CL/alpha slope matches analytical VLM value within 2%."""
-    alpha_deg = 1.0
-    solver = build_circle_solver(alpha_deg)
-    solver.execute_run(max_iter=20)
-    results = solver.get_results()
-
-    assert results["converged"]
-    alpha_rad = alpha_deg * solver.state.dtr
-    slope = results["CL"] / alpha_rad
-    assert slope == pytest.approx(REF_CL_ALPHA_SLOPE, rel=TOL_SLOPE_REL)
+    for key, ref in REF.items():
+        assert results[key] == pytest.approx(ref, abs=TOL), key

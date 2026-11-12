@@ -10,10 +10,8 @@ import math
 
 import pytest
 
-from openavl import constants as C
 from openavl.solver import AVLSolver
 
-from tests.core.test_deriv import _configure_derivative_run
 from tests.helpers import GEOMETRIES_DIR
 
 PLANE_AVL = GEOMETRIES_DIR / "plane.avl"
@@ -25,13 +23,9 @@ pytestmark = pytest.mark.core
 
 
 def _solve(cd0: float, beta_deg: float) -> AVLSolver:
-    solver = AVLSolver(PLANE_AVL)
-    _configure_derivative_run(solver)
-    solver.set_parameter("cd0", cd0)
-    solver.set_variable("alpha", ALPHA_DEG)
-    solver.set_variable("beta", beta_deg)
-    solver.state.conval[C.ICALFA, 0] = ALPHA_DEG
-    solver.state.conval[C.ICBETA, 0] = beta_deg
+    solver = AVLSolver(PLANE_AVL, cd0=cd0)
+    solver.set_constraint("alpha", "alpha", ALPHA_DEG)
+    solver.set_constraint("beta", "beta", beta_deg)
     solver.execute_run(max_iter=20)
     return solver
 

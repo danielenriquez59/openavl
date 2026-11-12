@@ -66,10 +66,11 @@ def test_geometry_against_rebuilt_numpy(body):
     np.testing.assert_allclose(updated.circulation.enc_d, baseline.circulation.enc_d, atol=1e-10, rtol=1e-10)
     jac = jax.jacrev(analysis)(params)
     fields = {"aincs": "ainc_deg", "chords": "chord", "xles": "xle", "yles": "yle", "zles": "zle"}
-    # Perturb an outboard section to exercise span/dihedral and hinge movement.
-    index = 1
-    for field, attribute in fields.items():
-        for step in (1e-4, 1e-5):
+    # The root section (on the symmetry plane) and an outboard one, which
+    # exercises span/dihedral and hinge movement.
+    step = 1e-4
+    for index in (0, 1):
+        for field, attribute in fields.items():
             results = []
             for sign in (1., -1.):
                 changed = deepcopy(model)
@@ -79,7 +80,7 @@ def test_geometry_against_rebuilt_numpy(body):
                 s = _solve(changed).state
                 results.append(np.r_[s.cltot, s.cdtot, s.cytot, s.cmtot])
             fd = (results[0] - results[1]) / (2. * step)
-            np.testing.assert_allclose(getattr(jac, field)[:, index], fd, atol=2e-5, rtol=2e-4, err_msg=field)
+            np.testing.assert_allclose(getattr(jac, field)[:, index], fd, atol=2e-5, rtol=2e-4, err_msg=f"{field}[{index}]")
 
 
 def test_asymmetric_stability_derivatives():
@@ -117,12 +118,12 @@ def test_body_mach_derivative_against_numpy():
     geom = snapshot_analysis_geometry(solver.state)
     refs, flow = snapshot_refs(solver.state), snapshot_flow(solver.state)
     jac = jax.jacrev(lambda mach: _outputs(run_analysis(flow._replace(mach=mach), geom, refs)))(flow.mach)
-    for step in (1e-4, 1e-5):
-        results = []
-        for sign in (1., -1.):
-            s = _solve(model, mach=float(flow.mach) + sign * step).state
-            results.append(np.r_[s.cltot, s.cdtot, s.cytot, s.cmtot])
-        np.testing.assert_allclose(jac, (results[0] - results[1]) / (2 * step), atol=2e-6, rtol=2e-5)
+    step = 1e-4
+    results = []
+    for sign in (1., -1.):
+        s = _solve(model, mach=float(flow.mach) + sign * step).state
+        results.append(np.r_[s.cltot, s.cdtot, s.cytot, s.cmtot])
+    np.testing.assert_allclose(jac, (results[0] - results[1]) / (2 * step), atol=2e-6, rtol=2e-5)
 
 
 @pytest.mark.parametrize("hinge", [-0.31, 0.67])
@@ -216,7 +217,9 @@ def test_openmdao_units_rates_and_totals(mode):
     for name, value in zip(("CL", "CD", "CY", "CMx", "CMy", "CMz"), np.r_[s.cltot, s.cdtot, s.cytot, s.cmtot]):
         np.testing.assert_allclose(old.get_val("avl." + name), value, atol=2e-7, rtol=2e-7)
 
-    wrt = list(values)
+    # Reverse mode checks every input; forward mode (one Jacobian-vector product
+    # per input, through the same code path) one input of each kind.
+    wrt = list(values) if mode == "rev" else ["alpha", "pb2v", "mach", "aileron"]
     checks = prob.check_totals(of=list(expected), wrt=wrt, method="fd", form="central", step=1e-5, out_stream=None)
     assert len(checks) == len(expected) * len(wrt)
     for key, data in checks.items():

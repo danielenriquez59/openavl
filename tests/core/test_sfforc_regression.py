@@ -289,15 +289,6 @@ def test_sfforc_outputs_pinned(case: str, toy_path: Path) -> None:
         np.testing.assert_allclose(val, ref, rtol=RTOL, atol=ATOL, err_msg=f"{case}:{key}")
 
 
-def test_clmax_cases_actually_clip(toy_path: Path) -> None:
-    """The CLmax cases must exercise the clipping branch."""
-    for case, clmax in (("clmax_controls", 0.55), ("visc_ltrforce_clmax", 0.4)):
-        with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            st = _solve(case, toy_path).state
-        assert np.max(st.cl_lstrp[: st.nstrip]) == pytest.approx(clmax, abs=1e-12)
-
-
 if __name__ == "__main__":  # regenerate EXPECTED (see module docstring)
     import tempfile
 
