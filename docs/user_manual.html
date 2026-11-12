@@ -1103,13 +1103,25 @@ ctrl = solver.get_control_derivatives(axis=<span class="st">"stability"</span>)
 
       <p>
         Rate derivatives use non-dimensional rates
-        (<code>pb/2V</code>, <code>qc/2V</code>, <code>rb/2V</code>). By default
-        <code>solver.state.lsa_rates</code> is <code>False</code>, so trim constraints on
-        body rates use body-axis <code>p</code>, <code>q</code>, <code>r</code> internally,
-        while <code>get_stability_derivatives()</code> still reports stability-axis rate
-        derivatives (<code>p</code>&prime;, <code>q</code>&prime;, <code>r</code>&prime;).
-        Set <code>lsa_rates = True</code> to interpret rate constraints in stability axes
-        (AVL Options menu equivalent).
+        (<code>pb/2V</code>, <code>qc/2V</code>, <code>rb/2V</code>). As in AVL, rate
+        constraints and <code>set_variable</code> rates are stability-axis rates
+        (<code>p</code>&prime;, <code>q</code>&prime;, <code>r</code>&prime;) by default:
+        <code>solver.state.lsa_rates</code> is <code>True</code>. This is what the
+        level-turn trim of <code>setup_trim()</code> assumes. Set
+        <code>lsa_rates = False</code> to give them in body axes instead (AVL Options menu
+        equivalent). <code>get_stability_derivatives()</code> always reports stability-axis
+        rate derivatives.
+      </p>
+
+      <p>
+        <strong>One deliberate difference from AVL:</strong> the alpha derivatives
+        (<code>CL_a</code>, <code>Cm_a</code>, &hellip;) in a turning or rolling case.
+        AVL's formula for how the body rates change with alpha carries a stray axis sign,
+        so with its default NASA axes its alpha derivatives differ from the finite-difference
+        values whenever the rates are non-zero (0.8% in <code>CL_a</code> and 1% in
+        <code>Cm_a</code> on Supra at 30&deg; bank). OpenAVL uses the correct expression,
+        which AVL's own source comments state, so these values differ slightly from AVL's
+        printout in turns. With zero rates the two agree.
       </p>
 
       <pre><code>body = solver.get_body_axis_derivatives()

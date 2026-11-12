@@ -162,11 +162,15 @@ def compute_stability_derivatives(state: AVLState) -> StabilityDerivatives:
     w0 = float(state.wrot[0])
     w2 = float(state.wrot[2])
 
-    rx = (w0 * ca + w2 * sa) * dir_
-    rz = (w2 * ca - w0 * sa) * dir_
     wrot_rx = np.array([ca * dir_, 0.0, sa * dir_], dtype=np.float64)
     wrot_rz = np.array([-sa * dir_, 0.0, ca * dir_], dtype=np.float64)
-    wrot_a = np.array([-rx * sa - rz * ca, 0.0, -rz * sa + rx * ca], dtype=np.float64)
+    # d(wrot)/d(alpha) with the stability-axis rates held fixed: the
+    # derivative of a rotation about y, so it does not depend on DIR. AVL's
+    # aoutput.f builds it from DIR-signed rates and gets -wrot under NASA axes,
+    # contradicting its own comments ("= -WROT(3)", "= WROT(1)"); that made
+    # CL_a and Cm_a in a turn depend on the output axes (0.8% / 1% on Supra at
+    # 30 deg bank). Deliberate departure from AVL; see the user manual.
+    wrot_a = np.array([-w2, 0.0, w0], dtype=np.float64)
 
     cl_u = state.cltot_u
     cy_u = state.cytot_u

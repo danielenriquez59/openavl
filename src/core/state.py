@@ -82,7 +82,7 @@ class AVLState:
     ltrforce: bool = False
     lnfld_wv: bool = False
     lnasa_sa: bool = True
-    lsa_rates: bool = False
+    lsa_rates: bool = True  # rate constraints in stability axes, AVL's default (avl.f)
 
     alfa: float = 0.0
     beta: float = 0.0
