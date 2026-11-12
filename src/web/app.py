@@ -57,9 +57,18 @@ async def list_examples() -> list[dict[str, str]]:
     return [{"name": name, "label": str(spec["label"])} for name, spec in EXAMPLES.items()]
 
 
+def _dumps(payload: dict[str, Any]) -> str:
+    """Serialize to strict JSON, sending NaN/Infinity as null (browsers reject them)."""
+    try:
+        return json.dumps(payload, allow_nan=False)
+    except ValueError:
+        cleaned = json.loads(json.dumps(payload), parse_constant=lambda _: None)
+        return json.dumps(cleaned, allow_nan=False)
+
+
 async def _send_json(websocket: WebSocket, payload: dict[str, Any]) -> None:
     """Serialize and send one JSON WebSocket message."""
-    await websocket.send_text(json.dumps(payload))
+    await websocket.send_text(_dumps(payload))
 
 
 async def _run_in_executor(func, *args, **kwargs) -> Any:

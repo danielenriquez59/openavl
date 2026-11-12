@@ -270,6 +270,9 @@ function setStatus(state, label) {
   pill.querySelector(".label").textContent = label ?? state;
 }
 
+const TRIM_NOT_CONVERGED_NOTICE =
+  "Trim did not converge; values shown are from the last iteration.";
+
 /**
  * Show or hide the error banner toast.
  *
@@ -1372,6 +1375,11 @@ function handleMessage(msg) {
       }
       if (msg.cref || msg.xcg) {
         updateStabilityDerivs(window._lastStability ?? {}, msg);
+      }
+      if (msg.converged === false) {
+        showError(TRIM_NOT_CONVERGED_NOTICE);
+      } else if (els.errorBanner.textContent === TRIM_NOT_CONVERGED_NOTICE) {
+        showError(null);
       }
       break;
 

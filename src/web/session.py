@@ -45,6 +45,9 @@ EXAMPLES: dict[str, dict[str, Any]] = {
 
 _SESSION_TTL_SECONDS = 30 * 60
 
+# Uploaded models are capped below C.NVMAX: the public server has ~512 MB of RAM.
+WEB_MAX_VORTICES = 1600
+
 _DEFAULT_FLIGHT_PARAMS = {
     "cd0": 0.015,
     "rho": 1.225,
@@ -342,7 +345,9 @@ def _create_solver(
     **state_options: Any,
 ) -> AVLSolver:
     """Construct an :class:`AVLSolver` from parsed model data without a geometry file."""
-    solver = AVLSolver._from_model(model, debug=debug, **state_options)
+    solver = AVLSolver._from_model(
+        model, debug=debug, max_vortices=WEB_MAX_VORTICES, **state_options
+    )
     if mass_props is not None and mass_props.loaded:
         apply_mass(solver.state, mass_props)
         solver.model.mass = mass_props

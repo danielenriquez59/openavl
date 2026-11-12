@@ -423,7 +423,7 @@ export class AircraftViewer3D {
    * @param {number|null|undefined} xnp
    */
   updateNeutralPoint(xnp) {
-    const value = Number(xnp);
+    const value = xnp == null ? NaN : Number(xnp); // Number(null) is 0, not "no value"
     this.npX = Number.isFinite(value) ? value : null;
     this._rebuildCgOverlay();
   }
