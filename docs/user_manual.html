@@ -1522,24 +1522,27 @@ NACA
       </p>
 
       <pre><code><span class="cm">#  mass file for My Aircraft</span>
-<span class="cm">#  units: kg, m</span>
-
 Lunit = <span class="nm">1.0</span> m
 Munit = <span class="nm">1.0</span> kg
 Tunit = <span class="nm">1.0</span> s
+g     = <span class="nm">9.81</span>
+rho   = <span class="nm">1.225</span>
 
-<span class="cm">#          x       y       z      mass</span>
-<span class="cm">#  name</span>
-body        <span class="nm">0.30</span>  <span class="nm">0.00</span>  <span class="nm">0.00</span>   <span class="nm">0.450</span>
+<span class="cm">#  mass    x      y      z      Ixx    Iyy    Izz   [ Ixy   Ixz   Iyz ]</span>
+   <span class="nm">0.300</span>   <span class="nm">0.30</span>   <span class="nm">0.00</span>   <span class="nm">0.00</span>   <span class="nm">0.004</span>  <span class="nm">0.006</span>  <span class="nm">0.009</span>   <span class="cm">! fuselage</span>
+   <span class="nm">0.075</span>   <span class="nm">0.25</span>   <span class="nm">0.40</span>   <span class="nm">0.00</span>   <span class="nm">0.003</span>  <span class="nm">0.001</span>  <span class="nm">0.003</span>   <span class="cm">! right wing</span>
+   <span class="nm">0.075</span>   <span class="nm">0.25</span>  <span class="nm">-0.40</span>   <span class="nm">0.00</span>   <span class="nm">0.003</span>  <span class="nm">0.001</span>  <span class="nm">0.003</span>   <span class="cm">! left wing</span></code></pre>
 
-<span class="cm"># Total mass and inertia tensor:</span>
-mass  = <span class="nm">0.450</span>
-Ixx   = <span class="nm">0.010</span>
-Iyy   = <span class="nm">0.008</span>
-Izz   = <span class="nm">0.015</span>
-Ixy   = <span class="nm">0.000</span>
-Ixz   = <span class="nm">0.001</span>
-Iyz   = <span class="nm">0.000</span></code></pre>
+      <p>
+        Each item is one line of numbers: mass, position, and optionally its own inertias
+        about its own CG. OpenAVL sums the items into the total mass, CG and inertia tensor.
+        Names go after <code>!</code>. Every other line must be a comment (<code>#</code> or
+        <code>!</code>), a <code>key = value</code> line (<code>Lunit</code>, <code>Munit</code>,
+        <code>Tunit</code>, <code>g</code>, <code>rho</code>), or a <code>*</code> / <code>+</code>
+        multiplier or adder line. A line that is none of these, such as <code>wing 0.075 0.25</code>
+        or <code>mass = 0.45</code>, stops the load with an error naming the line. Fortran AVL
+        skips such lines with a "Bad data line ... ignored" message, which silently changes the mass.
+      </p>
 
       <div class="callout callout-info">
         <strong>Note</strong>

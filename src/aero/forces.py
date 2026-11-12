@@ -595,15 +595,15 @@ def _strip_lift_direction_u(spn, raw, ulmag, ulift, numax):
 
 
 def _add_trailing_leg_forces(state, act, loads, rc4, cr, sr, ensy, ensz,
-                             vinf_f, xyzref_f, wrot_f, gam, gam_u, numax):
+                             vinf_f, xyzref_f, wrot_f, gam, gam_u, gam_d, numax, ncontrol):
     """Add h.v. forces from trailing legs lying on the wing surface (LTRFORCE).
 
     Each bound vortex has two chordwise trailing legs on the wing, from its
     endpoints RV1/RV2 to the strip trailing edge. The contribution of every
     leg is evaluated at once; ``np.add.at`` then adds them to the strip loads
     leg by leg, in AVL's (vortex, leg) order, so the sums round exactly as the
-    original loop's. As in the code this was ported from, the legs add no
-    control (``_d``) sensitivities.
+    original loop's. Freestream/rotation (``_u``) and control (``_d``)
+    sensitivities are added as in AVL 3.52 ``aero.f``.
     """
     vx, vy, vz = vinf_f
     xref, yref, zref = xyzref_f
@@ -677,6 +677,24 @@ def _add_trailing_leg_forces(state, act, loads, rc4, cr, sr, ensy, ensz,
         loads.cnc_u, q,
         crq_c * (ensy[q][:, np.newaxis] * dcf_u[1] + ensz[q][:, np.newaxis] * dcf_u[2]),
     )
+
+    # Control derivatives (aero.f FGAM_D): only the circulation depends on a
+    # deflection; the leg geometry and the velocity do not.
+    if ncontrol:
+        tgd = 2.0 * gam_d[i, :ncontrol]
+        dcf_d = tuple(tgd * (f[k] / srq)[:, np.newaxis] for k in range(3))
+        dcm_d = (
+            ((dcf_d[2] * r_c[1]) - (dcf_d[1] * r_c[2])) / crq_c,
+            ((dcf_d[0] * r_c[2]) - (dcf_d[2] * r_c[0])) / crq_c,
+            ((dcf_d[1] * r_c[0]) - (dcf_d[0] * r_c[1])) / crq_c,
+        )
+        for k in range(3):
+            np.add.at(loads.cf_d[k], q, dcf_d[k])
+            np.add.at(loads.cm_d[k], q, dcm_d[k])
+        np.add.at(
+            loads.cnc_d, q,
+            crq_c * (ensy[q][:, np.newaxis] * dcf_d[1] + ensz[q][:, np.newaxis] * dcf_d[2]),
+        )
 
 
 def _add_viscous_strip_drag(state, act, vis, loads, rc4, cr, ensy, ensz, ulift, ulift_u,
@@ -943,7 +961,7 @@ def sfforc(state: Any) -> Any:
     if ltrforce:
         _add_trailing_leg_forces(
             state, act, loads, rc4, cr, sr, ensy, ensz,
-            vinf_f, xyzref_f, wrot_f, gam, gam_u, numax,
+            vinf_f, xyzref_f, wrot_f, gam, gam_u, gam_d, numax, ncontrol,
         )
 
     # ULIFT_U is only needed by the viscous and CLmax branches.
