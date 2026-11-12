@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from openavl import constants as C
-from openavl.core.state import AVLState
+from openavl.core.state import RUN_CASE_OPTIONS, AVLState
 from openavl.fileio.mass import masini
 from openavl.fileio.parser import AVLModel
 from openavl.geom.geometry import build_geometry
@@ -22,6 +22,8 @@ def initialize_solver(
     mass_file: Path | None = None,
 ) -> None:
     """Initialize a solver facade from an already parsed AVL model."""
+    check_state_options(solver, state_options)
+    solver._trim_mode = None
     solver.debug = debug
     solver.geo_file = geo_file
     solver.mass_file = mass_file
@@ -32,6 +34,22 @@ def initialize_solver(
     solver.state.lenc = True
     masini(solver.state)
     apply_default_mass_parameters(solver.state)
+    apply_parameter_options(solver, state_options)
+
+
+def check_state_options(solver: Any, options: dict[str, Any]) -> None:
+    """Raise TypeError for constructor options the solver would silently ignore."""
+    unknown = sorted(
+        name
+        for name in options
+        if name not in RUN_CASE_OPTIONS and name.strip().lower() not in solver._PARAMETER_MAP
+    )
+    if unknown:
+        accepted = sorted(RUN_CASE_OPTIONS | set(solver._PARAMETER_MAP))
+        raise TypeError(
+            f"Unknown solver option(s): {', '.join(unknown)}. "
+            f"Accepted options: {', '.join(accepted)}."
+        )
 
 
 def apply_default_mass_parameters(state: AVLState) -> None:

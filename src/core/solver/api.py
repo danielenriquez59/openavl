@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
 from openavl import constants as C
 
+from openavl.analysis.trim import TRIM_DEPENDENTS, edit_trim_parameter
 from openavl.core.setup import check_mach
 from openavl.fileio.mass import load_mass
 from openavl.fileio.parser import AVLModel, parse_avl_file, prepare_model
@@ -154,26 +158,37 @@ class AVLSolver:
         debug:
             Enable verbose diagnostic output from the solver core.
         **state_options:
-            Initial run-case values forwarded to :class:`~openavl.core.state.AVLState`.
-            Common keywords include ``alpha`` and ``beta`` (degrees),
-            ``vel`` (airspeed), ``rho`` (density), ``gravity``, ``cl``,
-            ``cd0``, ``bank``, and ``xcg``/``ycg``/``zcg``. Any name
-            recognized by :meth:`set_parameter` (for example ``mach``) is
-            reapplied after a mass file is loaded.
+            Initial run-case values. Accepted keywords are ``alpha`` and
+            ``beta`` (degrees), ``vel`` (airspeed), ``cmx``/``cmy``/``cmz``
+            (moment targets), ``unitl``, and any name recognized by
+            :meth:`set_parameter` (for example ``mach``, ``velocity``,
+            ``rho``, ``gravity``, ``cl``, ``cd0``, ``bank``,
+            ``xcg``/``ycg``/``zcg``, ``mass``). Parameters are applied
+            whether or not a mass file is given, and again after the mass
+            file is loaded so they take precedence over it. ``base_dir``
+            sets the directory used to resolve airfoil and body files
+            (default: the geometry file's directory).
 
         Raises
         ------
         FileNotFoundError
             If ``mass_file`` is given but cannot be read or is empty.
+        TypeError
+            If an option is not recognized, rather than silently ignoring it.
+        ValueError
+            If an option value is out of range (for example ``mach >= 1``).
         """
         resolved_mass_file = Path(mass_file) if mass_file else None
+        base_dir = state_options.pop("base_dir", None)
         if isinstance(geo, Aircraft):
-            base_dir = state_options.pop("base_dir", None)
             geo_file = None
             model = geo.to_avl_model(base_dir=base_dir)
         else:
             geo_file = Path(geo)
-            model = prepare_model(parse_avl_file(geo_file), base_dir=geo_file.parent)
+            model = prepare_model(
+                parse_avl_file(geo_file),
+                base_dir=Path(base_dir) if base_dir is not None else geo_file.parent,
+            )
         _initialization.initialize_solver(
             self,
             model,
@@ -237,18 +252,39 @@ class AVLSolver:
             return C.IVTOT + ctrl_idx
         raise KeyError(f"Unknown variable: {name}")
 
+    def _rate_matrix(self) -> np.ndarray:
+        """T such that (pb/2V, qc/2V, rb/2V) = T @ wrot, as in the rate-constraint residuals.
+
+        Roll and yaw carry AVL's sign (DIR) and are body-axis rates, or
+        stability-axis rates when ``lsa_rates`` is set (see ``exec_solve``).
+        """
+        s = self.state
+        d = -1.0 if s.lnasa_sa else 1.0
+        ca, sa = (math.cos(s.alfa), math.sin(s.alfa)) if s.lsa_rates else (1.0, 0.0)
+        rotation = np.array([[d * ca, 0.0, d * sa], [0.0, 1.0, 0.0], [-d * sa, 0.0, d * ca]])
+        return 0.5 * np.array([[s.bref], [s.cref], [s.bref]]) * rotation
+
     def set_variable(self, name: str, value: float) -> None:
-        """Set a run-case variable (alpha/beta in degrees, controls in degrees)."""
+        """Set a run-case variable directly.
+
+        ``alpha``, ``beta`` and control deflections are in degrees. ``pb/2V``,
+        ``qc/2V`` and ``rb/2V`` use the convention of the rate constraints of
+        :meth:`set_constraint`, so a value set here gives the same flow as a
+        constraint of that value; changing ``alpha`` keeps them fixed.
+        """
         key = name.strip()
         lower = key.lower()
         if lower in self._VARIABLE_MAP:
             idx = self._VARIABLE_MAP[lower]
+            if idx == C.IVBETA:
+                self.state.beta = float(value) * self.state.dtr
+                return
+            rates = self._rate_matrix() @ self.state.wrot
             if idx == C.IVALFA:
                 self.state.alfa = float(value) * self.state.dtr
-            elif idx == C.IVBETA:
-                self.state.beta = float(value) * self.state.dtr
             else:
-                self.state.wrot[idx - C.IVROTX] = float(value)
+                rates[idx - C.IVROTX] = float(value)
+            self.state.wrot[:] = np.linalg.solve(self._rate_matrix(), rates)
             return
 
         ctrl_idx = self._resolve_control_index(key)
@@ -286,6 +322,12 @@ class AVLSolver:
         lets the solver compute the airspeed required for that lift coefficient
         in level flight. The same keywords may also be passed to the
         :class:`AVLSolver` constructor.
+
+        After :meth:`setup_trim`, changing ``bank``, ``cl``, ``velocity``,
+        ``mass``, ``density`` or ``gravity`` re-applies the trim as AVL's trim
+        menu does (mode 1 holds CL and recomputes V, except that a new
+        ``velocity`` recomputes CL), until an ``alpha`` or rate constraint is
+        set with :meth:`set_constraint`.
         """
         key = name.strip().lower()
         if key not in self._PARAMETER_MAP:
@@ -294,7 +336,10 @@ class AVLSolver:
         if idx == C.IPMACH:
             check_mach(value)
         stored_value = -float(value) if idx in {C.IPIXY, C.IPIYZ, C.IPIZX} else float(value)
-        self.state.parval[idx, 0] = stored_value
+        if idx in TRIM_DEPENDENTS.get(self._trim_mode, ()) and stored_value != self.state.parval[idx, 0]:
+            edit_trim_parameter(self.state, self._trim_mode, idx, stored_value)
+        else:
+            self.state.parval[idx, 0] = stored_value
         if idx == C.IPMACH:
             self.state.mach = float(value)
 
@@ -340,6 +385,8 @@ class AVLSolver:
             If ``variable`` or ``constraint`` is not recognized.
         """
         iv = self._resolve_variable_index(variable)
+        if iv in (C.IVALFA, C.IVROTX, C.IVROTY, C.IVROTZ):
+            self._trim_mode = None  # the user now drives what setup_trim set
         con_key = constraint.strip().lower()
         ctrl_idx = self._resolve_control_index(constraint)
         if ctrl_idx is not None and iv == C.IVTOT + ctrl_idx:

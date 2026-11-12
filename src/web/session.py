@@ -20,7 +20,7 @@ from openavl import constants as C
 from openavl.core.reporting import nasa_dir, reported_totals
 from openavl.core.solver import AVLSolver
 from openavl.core.solver.initialization import apply_parameter_options
-from openavl.fileio.mass import MassProperties, _apply_mass_properties, masput, parse_mass_text, unitset
+from openavl.fileio.mass import MassProperties, apply_mass, parse_mass_text
 from openavl.fileio.parser import AVLModel, normalize_airfoil_path, parse_avl, parse_xy_coords_text, prepare_model
 from openavl.geom.airfoil import parse_body_coords
 from openavl.geom.geometry import solver_surface_name
@@ -338,9 +338,7 @@ def _create_solver(
     """Construct an :class:`AVLSolver` from parsed model data without a geometry file."""
     solver = AVLSolver._from_model(model, debug=debug, **state_options)
     if mass_props is not None and mass_props.loaded:
-        _apply_mass_properties(solver.state, mass_props)
-        unitset(solver.state)
-        masput(solver.state, 0, 0)
+        apply_mass(solver.state, mass_props)
         solver.model.mass = mass_props
     apply_parameter_options(solver, state_options)
     return solver

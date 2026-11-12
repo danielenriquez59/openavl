@@ -33,20 +33,10 @@ def _mungea(state: AVLState) -> None:
             state.aicn[ii, ii] = 1.0
 
 
-def check_mach(mach: float) -> float:
-    """Return ``mach`` as a float, or raise if the solver cannot use it.
-
-    The Prandtl-Glauert factor sqrt(1 - M^2) is only real for M < 1. AVL
-    itself does not check, and the Python port used to fail later with a NaN
-    and a ZeroDivisionError inside the AIC kernel.
-    """
-    value = float(mach)
-    if not np.isfinite(value) or value < 0.0 or value >= 1.0:
-        raise ValueError(
-            f"Mach number must satisfy 0 <= M < 1 (Prandtl-Glauert compressibility "
-            f"correction is subsonic only); got {mach!r}."
-        )
-    return value
+def check_mach(mach: float) -> None:
+    """Raise unless 0 <= M < 1, where the Prandtl-Glauert factor sqrt(1 - M^2) is real."""
+    if not 0.0 <= float(mach) < 1.0:  # also rejects NaN
+        raise ValueError(f"Mach number must satisfy 0 <= M < 1 (subsonic only); got {mach!r}.")
 
 
 def setup(state: AVLState) -> AVLState:
@@ -109,6 +99,11 @@ def setup(state: AVLState) -> AVLState:
         # Unit solutions from the previous factorisation are stale.
         state.gucalc_cache = None
 
+    # Body source/doublet data depend on the moment reference point; AVL
+    # clears LSRD when Xref changes. Comparing here covers every path.
+    if not np.array_equal(state.xyzref_srd, state.xyzref):
+        state.lsrd = False
+
     if not state.lsrd:
         srdset(
             state.betm, state.xyzref, state.iysym,
@@ -126,6 +121,7 @@ def setup(state: AVLState) -> AVLState:
             state.wcsrd_u, state.nvor,
         )
         state.lsrd = True
+        state.xyzref_srd = state.xyzref.copy()
 
     if not state.lvel:
         vvor(

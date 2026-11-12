@@ -126,6 +126,8 @@ def setup_trim(self, mode: int = 1) -> None:
     airspeed is computed from the level-flight lift equation; conversely,
     ``cl`` is computed when ``velocity`` is given.
 
+    Later :meth:`set_parameter` edits keep the trim consistent (see there).
+
     Longitudinal trim is preset by constraining ``alpha`` to ``cl`` and
     fixing pitch/yaw rate constraints for the requested maneuver. Lateral
     and directional constraints (for example ``beta``, ``aileron``/``cll``,
@@ -140,6 +142,7 @@ def setup_trim(self, mode: int = 1) -> None:
     from openavl.analysis.trim import setup_trim
 
     setup_trim(self.state, mode=mode)
+    self._trim_mode = int(mode)
 
 def eigenvalues(self, use_approx: bool = False) -> EigenAnalysisResult:
     """Perform linearized flight-dynamics eigenanalysis at the current state.

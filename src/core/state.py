@@ -10,6 +10,13 @@ import numpy as np
 from openavl import constants as C
 from openavl.fileio.parser import AVLModel
 
+# Run-case keyword options read by AVLState.from_model (cd0 defaults to the file's CDp).
+RUN_DEFAULTS = {
+    "vel": 0.0, "rho": 1.225, "gravity": 9.81, "cl": 0.6, "bank": 0.0, "alpha": 2.0, "beta": 0.0,
+    "cmx": 0.0, "cmy": 0.0, "cmz": 0.0, "cd0": None, "xcg": None, "ycg": None, "zcg": None,
+}
+RUN_CASE_OPTIONS = frozenset(RUN_DEFAULTS) | {"unitl"}
+
 
 @dataclass
 class AVLState:
@@ -63,6 +70,8 @@ class AVLState:
     lenc: bool = False
     laic: bool = False
     lsrd: bool = False
+    # Reference point the body source/doublet data (srdset) was built about.
+    xyzref_srd: Any = None
     lvel: bool = False
     lsol: bool = False
     lsen: bool = False
@@ -372,23 +381,7 @@ class AVLState:
             nlnode += n_nodes * copies
         nlmax = max(1, nlnode)
 
-        run_defaults = {
-            "vel": 0.0,
-            "rho": 1.225,
-            "gravity": 9.81,
-            "cl": 0.6,
-            "bank": 0.0,
-            "alpha": 2.0,
-            "beta": 0.0,
-            "cmx": 0.0,
-            "cmy": 0.0,
-            "cmz": 0.0,
-            "cd0": float(model.header.cdp),
-            "xcg": None,
-            "ycg": None,
-            "zcg": None,
-        }
-        run_defaults.update(options)
+        run_defaults = {**RUN_DEFAULTS, "cd0": float(model.header.cdp), **options}
 
         unitl = float(options.get("unitl", 1.0))
         if unitl <= 0:

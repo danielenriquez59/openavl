@@ -43,7 +43,7 @@ def _run_plane_solver():
         cl=0.390510,
         vel=64.5396,
         rho=0.0005846,
-        gee=32.18,
+        gravity=32.18,
         cd0=0.00835,
         xcg=0.02463,
         ycg=0.0,

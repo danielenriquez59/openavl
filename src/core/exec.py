@@ -16,6 +16,19 @@ _EPS = (2.0e-5)
 _DMAX = (1.5708)
 
 
+def check_constraints(state: Any, ir: int = 0) -> None:
+    """Raise ValueError if two variables share a constraint (singular trim system), as AVL does."""
+    icon = [int(ic) for ic in state.icon[: state.nvtot, ir]]
+    clashes = sorted({ic for ic in icon if icon.count(ic) > 1})
+    if clashes:
+        details = "; ".join(
+            f"{state.con_names[ic]} is imposed by "
+            + ", ".join(state.var_names[iv] for iv, c in enumerate(icon) if c == ic)
+            for ic in clashes
+        )
+        raise ValueError(f"Cannot impose a constraint more than once: {details}.")
+
+
 class SolveCancelledError(RuntimeError):
     """Raised when a caller cooperatively cancels an active solve."""
 
@@ -41,6 +54,8 @@ def exec_solve(
     used by older AVL builds is omitted.
     """
     _ = info
+    if niter > 0:  # constraints are only used by the Newton trim
+        check_constraints(state, ir)
     dir_ = (-1.0 if state.lnasa_sa else 1.0)
     _raise_if_cancelled(cancel_check)
 
