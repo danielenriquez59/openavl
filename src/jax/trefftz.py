@@ -60,6 +60,12 @@ def _filament_velocity(
     return vy, vz
 
 
+def _no_wake(gamma: jnp.ndarray) -> TrefftzForces:
+    """A model with no strips (bodies only) sheds no wake: all far-field terms are zero."""
+    zero = jnp.zeros((), dtype=gamma.dtype)
+    return TrefftzForces(CL=zero, CY=zero, CDi=zero, spanef=zero, dwwake=jnp.zeros(0, dtype=gamma.dtype))
+
+
 def tpforc_jax(
     gamma: jnp.ndarray,
     tgeom: TrefftzGeometry,
@@ -72,6 +78,8 @@ def tpforc_jax(
     """
     smap = tgeom.strip_map
     nstrip = smap.ijfrst.shape[0]
+    if nstrip == 0:
+        return _no_wake(gamma)
     chord = tgeom.chord[:nstrip]
     hpi = jnp.array(1.0 / (2.0 * jnp.pi))
     active = (~smap.lstripoff).astype(gamma.dtype)
@@ -203,6 +211,8 @@ def tpforc_jax_jit(
     """JIT-safe Trefftz integration (symmetry branches use ``jnp.where``)."""
     smap = tgeom.strip_map
     nstrip = smap.ijfrst.shape[0]
+    if nstrip == 0:
+        return _no_wake(gamma)
     chord = tgeom.chord[:nstrip]
     hpi = jnp.array(1.0 / (2.0 * jnp.pi))
     active = (~smap.lstripoff).astype(gamma.dtype)

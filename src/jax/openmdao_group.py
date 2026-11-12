@@ -205,6 +205,7 @@ if om is not None:
             state = solver.state
             model = solver.model
 
+            self._lvisc = bool(state.lvisc)
             self._baseline = snapshot_analysis_geometry(state)
             self._topo = snapshot_topology(state, model)
             self._refs = snapshot_refs(state)
@@ -245,7 +246,7 @@ if om is not None:
             ))
             params = _inputs_to_design_params(self, inputs)
             result = run_analysis_with_geometry(
-                flow, params, self._topo, self._baseline, self._refs
+                flow, params, self._topo, self._baseline, self._refs, lvisc=self._lvisc
             )
             cl, cd, cy, roll, pitch, yaw = _stability_outputs(result, flow, self._lnasa_sa)
             outputs["CL"] = cl
@@ -264,7 +265,7 @@ if om is not None:
                     flow_in.alfa, flow_in.wrot, self._refs, self._lnasa_sa
                 ))
                 result = run_analysis_with_geometry(
-                    flow_in, params_in, self._topo, self._baseline, self._refs
+                    flow_in, params_in, self._topo, self._baseline, self._refs, lvisc=self._lvisc
                 )
                 return _stability_outputs_jax(result, flow_in, self._lnasa_sa)
 

@@ -38,6 +38,7 @@ if om is not None:
             solver = AVLSolver(self.options["geo_file"], self.options["mass_file"])
             solver.execute_run(max_iter=0)
             state = solver.state
+            self._lvisc = bool(state.lvisc)
             self._geom = snapshot_analysis_geometry(state)
             self._refs = snapshot_refs(state)
             self._lnasa_sa = bool(state.lnasa_sa)
@@ -95,7 +96,7 @@ if om is not None:
                     flow.alfa, flow.wrot, self._refs, self._lnasa_sa
                 ),
             )
-            return run_analysis(flow, self._geom, self._refs)
+            return run_analysis(flow, self._geom, self._refs, lvisc=self._lvisc)
 
         def compute(self, inputs: Any, outputs: Any) -> None:
             flow = self._flow_from_inputs(inputs)
