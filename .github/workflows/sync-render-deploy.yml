@@ -1,0 +1,36 @@
+name: Sync render-deploy
+
+# Every push to master is merged into render-deploy, and render-deploy is pushed,
+# so the deployed branch always carries the latest master.
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Run one sync at a time, in push order, so two quick pushes cannot race.
+concurrency:
+  group: sync-render-deploy
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: render-deploy
+          fetch-depth: 0
+
+      - name: Merge master into render-deploy and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge --no-ff -m "Merge branch 'master' into render-deploy" "$GITHUB_SHA"; then
+            git merge --abort
+            echo "::error::master does not merge cleanly into render-deploy. Merge it by hand and push render-deploy."
+            exit 1
+          fi
+          git push origin render-deploy
