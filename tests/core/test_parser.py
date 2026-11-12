@@ -278,3 +278,68 @@ def test_prepare_model_warns_when_airfoil_file_has_no_base_dir():
 
     with pytest.warns(UserWarning, match="relative path with no base_dir"):
         prepare_model(model)
+
+
+def test_comma_separated_header_section_and_scale():
+    """Commas separate values, as in Fortran list-directed input / GETFLT."""
+    text = "\n".join(
+        [
+            "Comma Plane",
+            "0.0",
+            "0, 0, 0.0",
+            "10.0, 1.0, 10.0",
+            "0.25, 0.0, 0.0",
+            "SURFACE",
+            "Wing",
+            "8, 1.0, 12, 1.0",
+            "SCALE",
+            "2.0, 2.0, 2.0",
+            "SECTION",
+            "0.0, 0.0, 0.0, 2.0, 0.0",
+            "SECTION",
+            "0.0, 5.0, 0.0, 1.0, 0.0",
+        ]
+    )
+    model = parse_avl(text)
+    h = model.header
+    assert (h.sref, h.cref, h.bref) == (10.0, 1.0, 10.0)
+    assert h.xref == pytest.approx(0.25)
+    surf = model.surfaces[0]
+    assert surf.n_chord == 8
+    assert surf.scale == [2.0, 2.0, 2.0]
+    assert len(surf.sections) == 2
+    assert surf.sections[0].chord == pytest.approx(2.0)
+    assert surf.sections[1].yle == pytest.approx(5.0)
+
+
+def test_fortran_d_exponent_numbers():
+    from openavl.fileio.parser import parse_numbers
+
+    assert parse_numbers("0.0 0.0 0.0 1.0D0 0.0") == [0.0, 0.0, 0.0, 1.0, 0.0]
+    assert parse_numbers("2.5d-3, 1D2") == [pytest.approx(2.5e-3), 100.0]
+    text = "\n".join(_HEADER_LINES + ["SURFACE", "Wing", "2 1 1 1", "SECTION", "0 0 0 1.5D0 0"])
+    assert parse_avl(text).surfaces[0].sections[0].chord == pytest.approx(1.5)
+
+
+def test_d_and_comma_rules_leave_names_and_paths_alone():
+    """Control names and file paths that look D-ish or contain commas stay text."""
+    from openavl.fileio.parser import parse_numbers
+
+    assert parse_numbers("d1 1d 1.0dx airfoil1d0.dat") == []
+    text = "\n".join(
+        _HEADER_LINES
+        + [
+            "SURFACE",
+            "Wing",
+            "2 1 1 1",
+            "SECTION",
+            "0 0 0 1 0",
+            "AFILE airfoils/foil,d2.dat",
+            "CONTROL",
+            "d1elev 1.0D0 0.7 0 1 0 -1",
+        ]
+    )
+    sec = parse_avl(text).surfaces[0].sections[0]
+    assert sec.airfoil_file == "airfoils/foil,d2.dat"
+    ctrl = sec.controls[0]
+    assert (ctrl.name, ctrl.gain, ctrl.xhinge, ctrl.sgn_dup) == ("d1elev", 1.0, 0.7, -1.0)

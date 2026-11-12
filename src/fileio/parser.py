@@ -74,7 +74,8 @@ def parse_numbers(line: str) -> list[float]:
     clean = strip_inline_comment(line).strip()
     if not clean:
         return []
-    return [float(v) for v in clean.split() if _is_finite_float(v)]
+    # Fortran list-directed input / GETFLT: commas separate values.
+    return [x for x in map(_to_float, clean.replace(",", " ").split()) if x is not None]
 
 
 def parse_xy_coords_text(text: str) -> list[list[float]]:
@@ -90,12 +91,24 @@ def parse_xy_coords_text(text: str) -> list[list[float]]:
     return coords
 
 
-def _is_finite_float(v: str) -> bool:
+# A whole token that is a Fortran D-exponent number, e.g. 1.0D0 or 2.5d-3.
+_FORTRAN_D_NUMBER = re.compile(r"([+-]?(?:\d+\.?\d*|\.\d+))[dD]([+-]?\d+)")
+
+
+def _to_float(v: str) -> float | None:
+    """Return the finite number a token reads as (Fortran D exponents allowed), else None."""
+    match = _FORTRAN_D_NUMBER.fullmatch(v)
+    if match:
+        v = f"{match.group(1)}e{match.group(2)}"
     try:
         x = float(v)
     except ValueError:
-        return False
-    return x == x and abs(x) != float("inf")
+        return None
+    return x if x == x and abs(x) != float("inf") else None
+
+
+def _is_finite_float(v: str) -> bool:
+    return _to_float(v) is not None
 
 
 def _is_comment_line(line: str) -> bool:
@@ -225,7 +238,7 @@ def _parse_control_line(raw: str, read_next_line) -> ControlDef:
         next_line = read_next_line() or ""
         parts = strip_inline_comment(next_line).split()
     name = parts.pop(0) if parts else "CTRL"
-    nums = [float(v) for v in parts if _is_finite_float(v)]
+    nums = parse_numbers(" ".join(parts))
     # Short-line defaults follow ainput.f: gain 1, xhinge 0, hinge vector 0
     # unless all three components are given, sgn_dup 1.
     has_vhinge = len(nums) > 4
@@ -278,7 +291,7 @@ def _leading_xy_pair(line: str) -> list[float] | None:
     tokens = strip_inline_comment(line).replace(",", " ").split()
     if len(tokens) < 2 or not (_is_finite_float(tokens[0]) and _is_finite_float(tokens[1])):
         return None
-    return [float(tokens[0]), float(tokens[1])]
+    return [_to_float(tokens[0]), _to_float(tokens[1])]
 
 
 def _parse_airfoil_block(lines: list[str], index_ref: dict[str, int]) -> list[list[float]]:
@@ -311,7 +324,7 @@ def _parse_xf_limits(trimmed_line: str) -> tuple[float, float]:
     parts = strip_inline_comment(trimmed_line).replace(",", " ").split()[1:3]
     if len(parts) < 2 or not all(_is_finite_float(p) for p in parts):
         return 0.0, 1.0
-    return max(0.0, float(parts[0])), min(1.0, float(parts[1]))
+    return max(0.0, _to_float(parts[0])), min(1.0, _to_float(parts[1]))
 
 
 def _is_partial_range(xfmin: float, xfmax: float) -> bool:
@@ -411,9 +424,9 @@ def parse_avl(text: str) -> AVLModel:
     while index_ref["i"] < len(lines) and _is_comment_line(lines[index_ref["i"]]):
         index_ref["i"] += 1
     if index_ref["i"] < len(lines):
-        cdp_tokens = strip_inline_comment(lines[index_ref["i"]]).split()
+        cdp_tokens = strip_inline_comment(lines[index_ref["i"]]).replace(",", " ").split()
         if cdp_tokens and _is_finite_float(cdp_tokens[0]):
-            header.cdp = float(cdp_tokens[0])
+            header.cdp = _to_float(cdp_tokens[0])
             index_ref["i"] += 1
 
     while index_ref["i"] < len(lines):
