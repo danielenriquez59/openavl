@@ -1,4 +1,4 @@
-"""Tests for openavl.setup (GAMSUM/VELSUM)."""
+"""Tests for openavl.core.setup (GAMSUM/VELSUM)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.setup import gamsum, gdcalc, velsum
-from openavl.state import AVLState
+from openavl.core.setup import gamsum, gdcalc, velsum
+from openavl.core.state import AVLState
 from tests.helpers import load_json_fixture, run_ref_binary
 
 pytestmark = pytest.mark.core

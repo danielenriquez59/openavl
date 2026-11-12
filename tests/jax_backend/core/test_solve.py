@@ -15,7 +15,7 @@ import jax.numpy as jnp
 from openavl.jax.setup import compute_circulation, compute_velocities
 from openavl.jax.snapshot import snapshot_flow, snapshot_circulation_geometry, snapshot_refs
 from openavl.jax.solve import lu_factor_aicn, solve_circulation, solve_from_lu
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

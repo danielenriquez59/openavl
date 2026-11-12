@@ -1,11 +1,11 @@
-"""Tests for openavl.vortex."""
+"""Tests for openavl.aero.vortex."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from openavl.vortex import vorvelc
+from openavl.aero.vortex import vorvelc
 from tests.helpers import load_json_fixture
 
 pytestmark = pytest.mark.core

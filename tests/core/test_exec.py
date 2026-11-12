@@ -1,4 +1,4 @@
-"""Tests for openavl.exec."""
+"""Tests for openavl.core.exec."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.exec import exec_solve
-from openavl.state import AVLState
+from openavl.core.exec import exec_solve
+from openavl.core.state import AVLState
 from tests.helpers import REF_DIR
 
 pytestmark = pytest.mark.core

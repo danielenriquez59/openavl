@@ -8,7 +8,7 @@ import json
 import pytest
 
 from openavl import constants as C
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from openavl.web.app import _apply_run_case, _send_solve_result, _solve_identity
 from openavl.web.session import SessionState
 

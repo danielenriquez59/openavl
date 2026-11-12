@@ -12,7 +12,7 @@ from tests.jax_backend.require_jax import require_jax
 require_jax()
 
 from openavl.jax.solver import JaxAVLSolver
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

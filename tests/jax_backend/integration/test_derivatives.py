@@ -16,7 +16,7 @@ from openavl.analysis.deriv import StabilityDerivatives, compute_stability_deriv
 from openavl.jax.analysis import run_analysis
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_flow, snapshot_refs
 from openavl.jax.types import FlowCondition
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

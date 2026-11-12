@@ -1,4 +1,4 @@
-"""OpenAVL — numerically faithful Python port of AVL."""
+"""OpenAVL: a Python port of the AVL vortex lattice code."""
 
 from openavl.core.solver import AVLSolver
 from openavl.core.state import AVLState
@@ -16,8 +16,9 @@ __all__ = [
     "FlightMode",
     "parse_avl",
     "parse_avl_file",
-    "JaxAVLSolver",
 ]
+# JaxAVLSolver stays out of __all__: it needs the optional JAX extra, and
+# ``from openavl import *`` must work without it. ``openavl.JaxAVLSolver`` still works.
 
 def __getattr__(name: str):
     """Lazily import optional exports so core solver imports stay lightweight."""

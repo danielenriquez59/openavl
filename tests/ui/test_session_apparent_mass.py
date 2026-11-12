@@ -15,7 +15,7 @@ import pytest
 
 from openavl.fileio.mass import parse_mass_file
 from openavl.fileio.parser import parse_avl_file, prepare_model
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from openavl.web import session as web
 
 from tests.helpers import GEOMETRIES_DIR

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openavl.core.setup import setup
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

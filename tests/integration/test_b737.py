@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import openavl.constants as C
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR, REF_DIR
 

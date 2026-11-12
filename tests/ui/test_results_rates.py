@@ -6,7 +6,7 @@ import pytest
 
 from openavl import constants as C
 from openavl.core.reporting import nasa_dir
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from openavl.web.session import _build_results_extras
 
 from tests.helpers import GEOMETRIES_DIR

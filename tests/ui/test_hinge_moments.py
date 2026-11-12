@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openavl import constants as C
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from openavl.web.session import (
     _build_hinge_moments,
     _hinge_moment_dimensional,

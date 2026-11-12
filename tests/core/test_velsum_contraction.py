@@ -8,7 +8,7 @@ import pytest
 from openavl import constants as C
 from openavl.core.setup import velsum
 from openavl.core.state import AVLState
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from tests.helpers import GEOMETRIES_DIR
 
 RTOL = 1e-12

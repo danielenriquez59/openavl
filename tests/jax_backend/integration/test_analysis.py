@@ -14,7 +14,7 @@ require_jax()
 from openavl.jax import analysis
 from openavl.jax.analysis import _make_forces_checkpoint, make_run_analysis_jit, run_analysis
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_flow, snapshot_refs
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

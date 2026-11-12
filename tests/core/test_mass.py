@@ -1,4 +1,4 @@
-"""Tests for openavl.mass."""
+"""Tests for openavl.fileio.mass."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.mass import (
+from openavl.fileio.mass import (
     MassProperties,
     load_mass,
     masget,
@@ -15,9 +15,9 @@ from openavl.mass import (
     parse_mass_file,
     parse_mass_text,
 )
-from openavl.parser import parse_avl_file, prepare_model
-from openavl.solver import AVLSolver
-from openavl.state import AVLState
+from openavl.fileio.parser import parse_avl_file, prepare_model
+from openavl.core.solver import AVLSolver
+from openavl.core.state import AVLState
 from tests.helpers import FIXTURES_DIR, GEOMETRIES_DIR, TESTS_DIR, load_json_fixture
 
 MASS_DIR = TESTS_DIR / "data" / "avl" / "mass"

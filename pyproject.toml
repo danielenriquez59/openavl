@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "openavl"
 version = "1.0.0"
-description = "Numerically faithful Python port of AVL vortex lattice code"
+description = "Python port of the AVL vortex lattice code, matching Fortran AVL 3.52 except for documented fixes"
 readme = "README.md"
 license = "GPL-2.0-or-later"
 license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
-    { name = "danielenriquez59", email = "deenriquez92@gmail.com" },
+    { name = "danielenriquez59" },
 ]
 dependencies = [
     "numpy>=1.24",
@@ -24,7 +24,7 @@ dependencies = [
 Homepage = "https://github.com/danielenriquez59/openavl"
 Repository = "https://github.com/danielenriquez59/openavl"
 Issues = "https://github.com/danielenriquez59/openavl/issues"
-Documentation = "https://github.com/danielenriquez59/openavl/blob/master/docs/user_manual.html"
+Documentation = "https://danielenriquez59.github.io/openavl/user_manual.html"
 
 [project.optional-dependencies]
 jax = ["jax>=0.4.20", "jaxlib>=0.4.20"]

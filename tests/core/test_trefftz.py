@@ -1,4 +1,4 @@
-"""Tests for openavl.trefftz."""
+"""Tests for openavl.aero.trefftz."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.trefftz import tpforc
+from openavl.aero.trefftz import tpforc
 from openavl.aero.trefftz import _accumulate_trefftz_induced
 from tests.helpers import REF_DIR
 

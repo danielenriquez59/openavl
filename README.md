@@ -1,6 +1,6 @@
 # OpenAVL
 
-A numerically faithful Python port of [AVL (Athena Vortex Lattice)](https://web.mit.edu/drela/Public/web/avl/), Mark Drela's widely-used Fortran aerodynamics solver. OpenAVL reproduces AVL's results to machine precision using pure Python and NumPy, making it scriptable, testable, and composable with the broader scientific Python ecosystem.
+A Python port of [AVL (Athena Vortex Lattice)](https://web.mit.edu/drela/Public/web/avl/), Mark Drela's widely-used Fortran aerodynamics solver. OpenAVL matches Fortran AVL 3.52 to about 1e-8, apart from a few AVL bugs it fixes (listed in the user manual). It uses Python and NumPy, making it scriptable, testable, and composable with the broader scientific Python ecosystem.
 
 [Try the OpenAVL app here](https://openavl-production.up.railway.app/)
 
@@ -92,13 +92,13 @@ pip install "openavl[web]"
 python -m openavl.web
 ```
 
-This starts a local server at `http://127.0.0.1:8000` and opens it in your default browser. Stop the server with `Ctrl+C`.
+This starts a local server at `http://127.0.0.1:8080` and opens it in your default browser. Stop the server with `Ctrl+C`.
 
 The `[web]` extra pulls in FastAPI, uvicorn, and python-multipart (for airfoil file uploads). Run web tests with `pytest tests/ui`.
 
 ## Documentation
 
-Full user manual: [docs/user_manual.html](https://github.com/danielenriquez59/openavl/blob/master/docs/user_manual.html) — API reference, Geometry API, examples, file formats, and module layout.
+Full [user manual](https://danielenriquez59.github.io/openavl/user_manual.html) — API reference, Geometry API, examples, file formats, and module layout.
 
 ## Quick Start
 

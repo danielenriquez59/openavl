@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from openavl.analysis.deriv import compute_neutral_point
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import FIXTURES_DIR, GEOMETRIES_DIR
 

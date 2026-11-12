@@ -10,7 +10,7 @@ from tests.jax_backend.require_jax import require_jax
 jax = require_jax()
 import jax.numpy as jnp
 
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from openavl.jax.analysis import run_analysis
 from openavl.jax.freestream import stability_rates_to_body
 from openavl.jax.geom_jax import design_params_from_state, snapshot_topology, run_analysis_with_geometry, update_geometry

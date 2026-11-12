@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.amode import build_appmat, build_sysmat, identify_modes, runchk, solve_eigenvalues
+from openavl.analysis.amode import build_appmat, build_sysmat, identify_modes, runchk, solve_eigenvalues
 from openavl.analysis.amode import _build_mass_matrices, compute_eigenmode_metrics
 from openavl.math.util import m3inv
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR, REF_DIR
 

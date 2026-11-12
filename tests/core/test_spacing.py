@@ -1,11 +1,11 @@
-"""Tests for openavl.spacing."""
+"""Tests for openavl.geom.spacing."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from openavl.spacing import akima, cspacer, nrmliz, spacer
+from openavl.geom.spacing import akima, cspacer, nrmliz, spacer
 from tests.helpers import load_json_fixture, run_ref_binary
 
 

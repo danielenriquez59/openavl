@@ -22,7 +22,7 @@ from openavl.jax.forces import (
     velocities_from_state,
 )
 from openavl.jax.trefftz import tpforc_jax
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

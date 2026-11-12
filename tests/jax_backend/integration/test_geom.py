@@ -19,7 +19,7 @@ from openavl.jax.geom_jax import (
 )
 from openavl.jax.setup import compute_circulation
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_flow, snapshot_refs
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

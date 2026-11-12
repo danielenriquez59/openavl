@@ -18,7 +18,7 @@ import math
 import pytest
 
 from openavl import constants as C
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 
