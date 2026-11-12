@@ -8,6 +8,28 @@ from openavl import constants as C
 from openavl.core.state import AVLState
 
 
+# Run-case values AVL's trim menu zeroes when one parameter is edited, so the
+# next TRMSET pass recomputes them (atrim.f, C1/C2 menu). Mode 1 holds CL:
+# changing bank, mass, density or gravity recomputes V; changing V recomputes CL.
+TRIM_DEPENDENTS: dict[int, dict[int, tuple[int, ...]]] = {
+    1: {
+        C.IPPHI: (C.IPVEE,),
+        C.IPCL: (C.IPVEE, C.IPRAD),
+        C.IPVEE: (C.IPCL,),
+        C.IPMASS: (C.IPVEE,),
+        C.IPRHO: (C.IPVEE,),
+        C.IPGEE: (C.IPVEE,),
+    },
+    2: {
+        C.IPCL: (C.IPRAD, C.IPFAC),
+        C.IPVEE: (C.IPFAC,),
+        C.IPMASS: (C.IPRAD, C.IPFAC),
+        C.IPRHO: (C.IPRAD, C.IPFAC),
+        C.IPGEE: (C.IPFAC,),
+    },
+}
+
+
 def setup_trim(state: AVLState, mode: int, ir: int = 0) -> None:
     """Configure trim constraints for a run case.
 
@@ -24,7 +46,9 @@ def setup_trim(state: AVLState, mode: int, ir: int = 0) -> None:
     if ktrim not in (1, 2):
         raise ValueError(f"Unsupported trim mode: {mode}")
 
-    if ktrim in (1, 2) and state.parval[C.IPCL, ir] == 0.0:
+    # Entering the trim menu (atrim.f label 100): take CL from the CL
+    # constraint if the run case has none, and fill in missing defaults.
+    if state.parval[C.IPCL, ir] == 0.0:
         for iv in range(state.nvtot):
             if state.icon[iv, ir] == C.ICCL:
                 state.parval[C.IPCL, ir] = state.conval[C.ICCL, ir]
@@ -36,6 +60,20 @@ def setup_trim(state: AVLState, mode: int, ir: int = 0) -> None:
         state.parval[C.IPGEE, ir] = state.gee0
     if state.parval[C.IPMASS, ir] <= 0.0:
         state.parval[C.IPMASS, ir] = state.rmass0
+
+    apply_trim(state, ktrim, ir)
+
+
+def edit_trim_parameter(state: AVLState, mode: int, ipar: int, value: float, ir: int = 0) -> None:
+    """Store ``value``, zero its dependents (:data:`TRIM_DEPENDENTS`) and re-apply the trim."""
+    state.parval[ipar, ir] = value
+    for dependent in TRIM_DEPENDENTS[mode].get(ipar, ()):
+        state.parval[dependent, ir] = 0.0
+    apply_trim(state, mode, ir)
+
+
+def apply_trim(state: AVLState, ktrim: int, ir: int = 0) -> None:
+    """Recompute dependent trim values and set constraints (atrim.f label 5)."""
 
     cref_d = state.cref * state.unitl
     bref_d = state.bref * state.unitl
@@ -49,6 +87,10 @@ def setup_trim(state: AVLState, mode: int, ir: int = 0) -> None:
     gee = state.parval[C.IPGEE, ir]
     fac = state.parval[C.IPFAC, ir]
     rmass = state.parval[C.IPMASS, ir]
+
+    if ktrim == 1 and not -90.0 < phi < 90.0:
+        # Same limit as AVL's trim menu; cos(phi) <= 0 has no level-turn solution.
+        raise ValueError(f"Bank angle must satisfy -90 < bank < 90 for trim; got {phi}.")
 
     sinp = math.sin(phi * state.dtr)
     cosp = math.cos(phi * state.dtr)

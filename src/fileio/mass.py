@@ -345,10 +345,14 @@ def load_mass(state: Any, mass_file: str | Path) -> MassProperties | None:
     """Parse a .mass file and write results into state and PARVAL."""
     masini(state)
     props = _read_mass_properties(mass_file)
-    if props is None:
-        return None
+    if props is not None:
+        apply_mass(state, props)
+    return props
+
+
+def apply_mass(state: Any, props: MassProperties) -> None:
+    """Write parsed mass properties into state: units, apparent mass, run-case PARVAL."""
     _apply_mass_properties(state, props)
     unitset(state)
     appget(state)
     masput(state, 0, 0)
-    return props

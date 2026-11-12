@@ -6,8 +6,11 @@ import math
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
+
 from openavl import constants as C
 
+from openavl.analysis.trim import TRIM_DEPENDENTS, edit_trim_parameter
 from openavl.core.setup import check_mach
 from openavl.fileio.mass import load_mass
 from openavl.fileio.parser import AVLModel, parse_avl_file, prepare_model
@@ -249,68 +252,39 @@ class AVLSolver:
             return C.IVTOT + ctrl_idx
         raise KeyError(f"Unknown variable: {name}")
 
-    def _rate_axes(self) -> tuple[float, float, float]:
-        """Return (DIR, cos, sin) of the axes the rate constraints use.
+    def _rate_matrix(self) -> np.ndarray:
+        """T such that (pb/2V, qc/2V, rb/2V) = T @ wrot, as in the rate-constraint residuals.
 
-        Matches the Newton residuals in ``exec_solve``: rates are body-axis
-        rates unless ``lsa_rates`` selects stability axes (rotated by alpha).
+        Roll and yaw carry AVL's sign (DIR) and are body-axis rates, or
+        stability-axis rates when ``lsa_rates`` is set (see ``exec_solve``).
         """
         s = self.state
-        dir_ = -1.0 if s.lnasa_sa else 1.0
-        if s.lsa_rates:
-            return dir_, math.cos(s.alfa), math.sin(s.alfa)
-        return dir_, 1.0, 0.0
-
-    def _constraint_rates(self) -> list[float]:
-        """Return the current (pb/2V, qc/2V, rb/2V) in the convention of the rate constraints.
-
-        Roll and yaw carry AVL's axis sign (DIR) and are in the axes selected by
-        ``lsa_rates`` (body by default); pitch is q·c/2V.
-        """
-        s = self.state
-        dir_, ca, sa = self._rate_axes()
-        wx, wy, wz = (float(w) for w in s.wrot)
-        return [
-            dir_ * (wx * ca + wz * sa) * 0.5 * s.bref,
-            wy * 0.5 * s.cref,
-            dir_ * (wz * ca - wx * sa) * 0.5 * s.bref,
-        ]
-
-    def _set_constraint_rates(self, rates: list[float]) -> None:
-        """Set ``wrot`` from (pb/2V, qc/2V, rb/2V); the inverse of :meth:`_constraint_rates`."""
-        s = self.state
-        dir_, ca, sa = self._rate_axes()
-        p = rates[0] * 2.0 / s.bref
-        r = rates[2] * 2.0 / s.bref
-        s.wrot[0] = dir_ * (p * ca - r * sa)
-        s.wrot[1] = rates[1] * 2.0 / s.cref
-        s.wrot[2] = dir_ * (p * sa + r * ca)
+        d = -1.0 if s.lnasa_sa else 1.0
+        ca, sa = (math.cos(s.alfa), math.sin(s.alfa)) if s.lsa_rates else (1.0, 0.0)
+        rotation = np.array([[d * ca, 0.0, d * sa], [0.0, 1.0, 0.0], [-d * sa, 0.0, d * ca]])
+        return 0.5 * np.array([[s.bref], [s.cref], [s.bref]]) * rotation
 
     def set_variable(self, name: str, value: float) -> None:
         """Set a run-case variable directly.
 
-        ``alpha`` and ``beta`` and control deflections are in degrees.
-        ``pb/2V``, ``qc/2V`` and ``rb/2V`` are non-dimensional rates in the same
-        convention as the rate constraints of :meth:`set_constraint` (AVL sign
-        convention; body axes, or stability axes when ``state.lsa_rates`` is
-        set), so a value set here gives the same flow as a constraint of that
-        value. Changing ``alpha`` keeps these rates fixed, so the order of
-        calls does not matter.
+        ``alpha``, ``beta`` and control deflections are in degrees. ``pb/2V``,
+        ``qc/2V`` and ``rb/2V`` use the convention of the rate constraints of
+        :meth:`set_constraint`, so a value set here gives the same flow as a
+        constraint of that value; changing ``alpha`` keeps them fixed.
         """
         key = name.strip()
         lower = key.lower()
         if lower in self._VARIABLE_MAP:
             idx = self._VARIABLE_MAP[lower]
-            if idx == C.IVALFA:
-                rates = self._constraint_rates()
-                self.state.alfa = float(value) * self.state.dtr
-                self._set_constraint_rates(rates)
-            elif idx == C.IVBETA:
+            if idx == C.IVBETA:
                 self.state.beta = float(value) * self.state.dtr
+                return
+            rates = self._rate_matrix() @ self.state.wrot
+            if idx == C.IVALFA:
+                self.state.alfa = float(value) * self.state.dtr
             else:
-                rates = self._constraint_rates()
                 rates[idx - C.IVROTX] = float(value)
-                self._set_constraint_rates(rates)
+            self.state.wrot[:] = np.linalg.solve(self._rate_matrix(), rates)
             return
 
         ctrl_idx = self._resolve_control_index(key)
@@ -348,6 +322,12 @@ class AVLSolver:
         lets the solver compute the airspeed required for that lift coefficient
         in level flight. The same keywords may also be passed to the
         :class:`AVLSolver` constructor.
+
+        After :meth:`setup_trim`, changing ``bank``, ``cl``, ``velocity``,
+        ``mass``, ``density`` or ``gravity`` re-applies the trim as AVL's trim
+        menu does (mode 1 holds CL and recomputes V, except that a new
+        ``velocity`` recomputes CL), until an ``alpha`` or rate constraint is
+        set with :meth:`set_constraint`.
         """
         key = name.strip().lower()
         if key not in self._PARAMETER_MAP:
@@ -356,7 +336,10 @@ class AVLSolver:
         if idx == C.IPMACH:
             check_mach(value)
         stored_value = -float(value) if idx in {C.IPIXY, C.IPIYZ, C.IPIZX} else float(value)
-        self.state.parval[idx, 0] = stored_value
+        if idx in TRIM_DEPENDENTS.get(self._trim_mode, ()) and stored_value != self.state.parval[idx, 0]:
+            edit_trim_parameter(self.state, self._trim_mode, idx, stored_value)
+        else:
+            self.state.parval[idx, 0] = stored_value
         if idx == C.IPMACH:
             self.state.mach = float(value)
 
@@ -402,6 +385,8 @@ class AVLSolver:
             If ``variable`` or ``constraint`` is not recognized.
         """
         iv = self._resolve_variable_index(variable)
+        if iv in (C.IVALFA, C.IVROTX, C.IVROTY, C.IVROTZ):
+            self._trim_mode = None  # the user now drives what setup_trim set
         con_key = constraint.strip().lower()
         ctrl_idx = self._resolve_control_index(constraint)
         if ctrl_idx is not None and iv == C.IVTOT + ctrl_idx:

@@ -23,6 +23,7 @@ def initialize_solver(
 ) -> None:
     """Initialize a solver facade from an already parsed AVL model."""
     check_state_options(solver, state_options)
+    solver._trim_mode = None
     solver.debug = debug
     solver.geo_file = geo_file
     solver.mass_file = mass_file
