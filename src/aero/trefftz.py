@@ -309,7 +309,8 @@ def tpforc(state: Any) -> None:
         numax, ncontrol,
     )
 
-    ic = (state.ijfrst + state.nvstrp - 1).astype(np.intp)
+    # Slice to nstrip: the strip arrays are padded to length 1 on body-only models.
+    ic = (state.ijfrst[:nstrip] + state.nvstrp[:nstrip] - 1).astype(np.intp)
     # set x,y,z in wind axes (Y,Z are then in Trefftz plane)
     rt1 = p @ state.rv1[:, ic]
     rt2 = p @ state.rv2[:, ic]
@@ -324,7 +325,7 @@ def tpforc(state: Any) -> None:
     dsy = dyt
     dsz = dzt
     dsyz = dst
-    comp_jc = state.lncomp[state.lssurf]
+    comp_jc = state.lncomp[state.lssurf[:nstrip]]
     comp_jv = comp_jc
     cross_comp = comp_jc[:, np.newaxis] != comp_jv[np.newaxis, :]
     rcore_cross = np.maximum(state.vrcorec * state.chord[:nstrip], state.vrcorew * dsyz)

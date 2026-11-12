@@ -462,6 +462,7 @@ class AVLSolver:
         from openavl.core.exec import exec_solve
 
         exec_solve(self.state, niter=max_iter, cancel_check=cancel_check)
+        self._last_solve = (max_iter, _analysis.solve_inputs(self.state))
 
 
     get_results = _results.get_results
