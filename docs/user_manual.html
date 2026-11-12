@@ -1426,19 +1426,24 @@ cl_local = solver.state.cl_lstrp[j0 : j0 + nj]
           in the strip's local lift direction (including dihedral via the strip normal).
         </li>
         <li>
-          When <code>cl_lstrp[j] &gt; clmax</code>, all strip force and moment components
-          (<code>cfstrp</code>, <code>clstrp</code>, <code>cdstrp</code>, <code>cystrp</code>,
-          <code>cmstrp</code>, and related local coefficients) are multiplied by
-          <code>clmax / cl_lstrp[j]</code>.
+          When strip <code>j</code> would exceed <code>clmax</code>, the force on every vortex
+          of that strip is multiplied by <code>clmax / Cl</code> before anything is summed.
+          So everything built from those forces reflects the cap: &Delta;Cp, strip and
+          surface coefficients (including the local surface coefficients), span loading
+          <code>cnc</code>, hinge moments, and the totals.
         </li>
         <li>
-          Integrated total <code>CL</code>, <code>CD</code>, and moments reflect the reduced
-          sectional loads. Trefftz-plane far-field analysis is unchanged (it uses circulation
-          directly, not the capped strip forces).
+          A <code>CDCL</code> viscous polar is read at the capped Cl, so the strip's
+          viscous drag does not fall when it stalls.
         </li>
         <li>
-          Stability-derivative sensitivities for stalled strips are not scaled; post-stall
-          linear derivatives are not meaningful in a VLM context.
+          The derivatives include the change of the scale factor, so trims and stability
+          derivatives match the capped loads. They have a kink at the cap.
+        </li>
+        <li>
+          The circulation is not changed. Load does not move to the neighbouring strips,
+          and the Trefftz plane (induced drag, span efficiency) still sees the uncapped
+          loading. Trailing-leg forces (<code>ltrforce</code>) are not capped.
         </li>
       </ul>
 
