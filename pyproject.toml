@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,18 +7,17 @@ name = "openavl"
 version = "0.1.0"
 description = "Numerically faithful Python port of AVL vortex lattice code"
 readme = "README.md"
-license = { text = "GPL-2.0-or-later" }
+license = "GPL-2.0-or-later"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     { name = "danielenriquez59", email = "deenriquez92@gmail.com" },
 ]
 dependencies = [
-    "numpy>=2.4; python_version>='3.11'",
-    "numpy>=1.24,<2.3; python_version<'3.11'",
-    "scipy>=1.17; python_version>='3.11'",
-    "scipy>=1.10,<1.16; python_version<'3.11'",
+    "numpy>=1.24",
+    "scipy>=1.14",  # older lu_factor rejects the empty AIC of body-only models
     "matplotlib>=3.7",
-    "numba>=0.65",
+    "numba>=0.58",
 ]
 
 [project.urls]
@@ -52,7 +51,11 @@ packages = [
     "openavl.math",
     "openavl.plotting",
     "openavl.web",
+    "openavl.web.static",
 ]
+
+[tool.setuptools.package-data]
+"openavl.web.static" = ["*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

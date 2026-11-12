@@ -23,20 +23,25 @@ OpenAVL solves the **vortex lattice method (VLM)** to compute aerodynamic forces
 ## Installation
 
 ```bash
-git clone https://github.com/danielenriquez59/openavl.git
-cd openavl
-pip install -e .
+pip install openavl
 ```
 
-**Requirements:** Python >= 3.10, NumPy >= 1.24, SciPy >= 1.10, Matplotlib >= 3.7, Numba >= 0.60
+**Requirements:** Python >= 3.10, NumPy >= 1.24, SciPy >= 1.14, Matplotlib >= 3.7, Numba >= 0.58
 
-Optional extras install with bracket notation. Combine multiple extras as needed (e.g. `pip install -e ".[dev,jax,web]"`).
+Optional extras install with bracket notation. Combine multiple extras as needed (e.g. `pip install "openavl[jax,web]"`).
 
 ```bash
-pip install -e ".[dev]"         # pytest — run the test suite
-pip install -e ".[web]"         # FastAPI + uvicorn — browser-based GUI
-pip install -e ".[jax]"         # JAX + jaxlib (CPU) — AD and OpenMDAO integration
-pip install -e ".[jax-cuda12]"  # JAX with CUDA 12 GPU support
+pip install "openavl[web]"         # FastAPI + uvicorn — browser-based GUI
+pip install "openavl[jax]"         # JAX + jaxlib (CPU) — AD and OpenMDAO integration
+pip install "openavl[jax-cuda12]"  # JAX with CUDA 12 GPU support
+```
+
+For development, install from source in editable mode:
+
+```bash
+git clone https://github.com/danielenriquez59/openavl.git
+cd openavl
+pip install -e ".[dev]"            # pytest — run the test suite
 ```
 
 #### Web GUI (`[web]`)
@@ -48,10 +53,10 @@ Installs FastAPI, uvicorn, and python-multipart. See [Running the Web GUI Locall
 Enables `openavl.jax` for reverse-mode automatic differentiation, gradient-based optimization, and OpenMDAO wrappers (see `examples/rectangular_wing_opt.py`). JAX is **not** installed with the base package.
 
 ```bash
-pip install -e ".[jax]"
+pip install "openavl[jax]"
 ```
 
-On Windows, if JAX fails to import, install the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (x64) and try `pip install -e ".[jax-cuda12]"` for CUDA 12 wheels. A standard `venv` (rather than Anaconda) or WSL can help if native wheels remain problematic.
+On Windows, if JAX fails to import, install the [Microsoft Visual C++ Redistributable](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist) (x64) and try `pip install "openavl[jax-cuda12]"` for CUDA 12 wheels. A standard `venv` (rather than Anaconda) or WSL can help if native wheels remain problematic.
 
 Enable 64-bit floats before running JAX analysis (required for AVL numerics):
 
@@ -82,10 +87,8 @@ are piecewise smooth and should be checked away from those transitions.
 
 OpenAVL ships a browser-based GUI for loading `.avl` models, editing flight conditions, running the solver, and viewing 3D geometry and results. It wraps the core NumPy solver with a FastAPI backend and is optional — not installed with the base package.
 
-From the repository root (after `pip install -e .`):
-
 ```bash
-pip install -e ".[web]"
+pip install "openavl[web]"
 python -m openavl.web
 ```
 
@@ -95,7 +98,7 @@ The `[web]` extra pulls in FastAPI, uvicorn, and python-multipart (for airfoil f
 
 ## Documentation
 
-Full user manual: [docs/user_manual.html](docs/user_manual.html) — API reference, Geometry API, examples, file formats, and module layout.
+Full user manual: [docs/user_manual.html](https://github.com/danielenriquez59/openavl/blob/master/docs/user_manual.html) — API reference, Geometry API, examples, file formats, and module layout.
 
 ## Quick Start
 
