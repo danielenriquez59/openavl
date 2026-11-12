@@ -79,19 +79,20 @@ def _sum_strip_circulations(
     ncontrol: int,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Sum vortex circulations and sensitivities per strip (GAMS arrays)."""
-    gams = np.zeros(nstrip, dtype=np.float64)
-    gams_u = np.zeros((nstrip, numax), dtype=np.float64)
+    counts = np.asarray(nvstrp[:nstrip], dtype=np.intp)
+    strip = np.repeat(np.arange(nstrip), counts)
+    # Vortex i1 + k of each strip, k = 0 .. nvc-1, in strip order.
+    shift = np.asarray(ijfrst[:nstrip], dtype=np.intp) - (np.cumsum(counts) - counts)
+    idx = np.repeat(shift, counts) + np.arange(strip.size)
+
+    def strip_sum(values: np.ndarray) -> np.ndarray:
+        return np.bincount(strip, weights=values[idx], minlength=nstrip)
+
+    gams = strip_sum(gam)
+    gams_u = np.stack([strip_sum(gam_u[:, n]) for n in range(numax)], axis=1)
     gams_d = np.zeros((nstrip, max(1, ncontrol)), dtype=np.float64)
-    for jc in range(nstrip):
-        i1 = int(ijfrst[jc])
-        nvc = int(nvstrp[jc])
-        if nvc == 0:
-            continue
-        idx = np.arange(i1, i1 + nvc, dtype=np.intp)
-        gams[jc] = np.sum(gam[idx])
-        gams_u[jc] = np.sum(gam_u[idx, :numax], axis=0)
-        if ncontrol:
-            gams_d[jc] = np.sum(gam_d[idx, :ncontrol], axis=0)
+    for n in range(ncontrol):
+        gams_d[:, n] = strip_sum(gam_d[:, n])
     return gams, gams_u, gams_d
 
 

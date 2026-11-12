@@ -11,6 +11,7 @@ from tests.jax_backend.require_jax import require_jax
 
 require_jax()
 
+from openavl.jax import analysis
 from openavl.jax.analysis import _make_forces_checkpoint, make_run_analysis_jit, run_analysis
 from openavl.jax.snapshot import snapshot_analysis_geometry, snapshot_flow, snapshot_refs
 from openavl.solver import AVLSolver
@@ -194,3 +195,21 @@ def test_solver_jit_mach_and_derivative_api_consistency():
               - solver.run(flow._replace(mach=flow.mach - step)).CL) / (2 * step)
         assert abs(float(fd)) > 1e-6
         np.testing.assert_allclose(grad.mach, fd, atol=1e-7, rtol=1e-6)
+
+def test_run_analysis_jit_reuses_the_compiled_runner(monkeypatch) -> None:
+    """Repeat calls with the same geometry compile once, not once per call."""
+    solver = _run_numpy_solver(PLANE_AVL, alpha=5.0, beta=0.0)
+    geom = snapshot_analysis_geometry(solver.state)
+    refs = snapshot_refs(solver.state)
+    flow = snapshot_flow(solver.state)
+
+    built = []
+    real_make = analysis.make_run_analysis_jit
+    monkeypatch.setattr(
+        analysis, "make_run_analysis_jit", lambda *a, **k: built.append(1) or real_make(*a, **k)
+    )
+    first = analysis.run_analysis_jit(flow, geom, refs)
+    second = analysis.run_analysis_jit(flow._replace(alfa=flow.alfa + 0.01), geom, refs)
+    assert len(built) == 1
+    assert float(first.CL) == pytest.approx(solver.state.cltot, abs=PRIMAL_TOL)
+    assert float(second.CL) > float(first.CL)
