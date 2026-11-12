@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any, Literal
 
 import numpy as np
@@ -103,151 +104,87 @@ def compute_neutral_point(
     return xnp, sm
 
 
-def _chain_alpha(
-    arr6: np.ndarray,
-    vinf_a: np.ndarray,
-    wrot_a: np.ndarray,
-    extra: float = 0.0,
-) -> float:
-    """Chain-rule derivative with respect to angle of attack."""
-    return float(
-        arr6[0] * vinf_a[0]
-        + arr6[1] * vinf_a[1]
-        + arr6[2] * vinf_a[2]
-        + arr6[3] * wrot_a[0]
-        + arr6[4] * wrot_a[1]
-        + arr6[5] * wrot_a[2]
-        + extra
-    )
+_STAB_COEFS = ("CL", "CY", "CD", "Cl", "Cm", "Cn")
 
 
-def _chain_beta(arr6: np.ndarray, vinf_b: np.ndarray) -> float:
-    """Chain-rule derivative with respect to sideslip angle."""
-    return float(
-        arr6[0] * vinf_b[0]
-        + arr6[1] * vinf_b[1]
-        + arr6[2] * vinf_b[2]
-    )
+def _stability_rows(cl, cy, cd, cm, ca: float, sa: float, dir_: float) -> np.ndarray:
+    """Stack CL, CY, CD, Cl', Cm, Cn' from geometry-axis moments ``cm`` (3, ...).
 
-
-def _chain_rx(arr6: np.ndarray, wrot_rx: np.ndarray) -> float:
-    """Roll-rate contribution through stability-axis rate transform."""
-    return float(arr6[3] * wrot_rx[0] + arr6[5] * wrot_rx[2])
-
-
-def _chain_ry(arr6: np.ndarray) -> float:
-    """Pitch-rate contribution."""
-    return float(arr6[4])
-
-
-def _chain_rz(arr6: np.ndarray, wrot_rz: np.ndarray) -> float:
-    """Yaw-rate contribution through stability-axis rate transform."""
-    return float(arr6[5] * wrot_rz[2] + arr6[3] * wrot_rz[0])
-
-
-def _control_deriv_per_rad(value: float, state: AVLState) -> float:
-    """Convert a raw control derivative from per-degree to per-radian."""
-    return float(value) / float(state.dtr)
+    Cl' and Cn' are the roll and yaw moments about the stability axes: the body
+    x and z axes turned by alpha about y, with AVL's DIR sign.
+    """
+    return np.array([
+        cl, cy, cd,
+        dir_ * (cm[0] * ca + cm[2] * sa),
+        cm[1],
+        dir_ * (cm[2] * ca - cm[0] * sa),
+    ], dtype=np.float64)
 
 
 def compute_stability_derivatives(state: AVLState) -> StabilityDerivatives:
     """Extract classical stability derivatives from raw ``_u`` and ``_d`` arrays.
 
     Angle and control derivatives are returned per radian. Rate derivatives
-    ``*_p``, ``*_q``, and ``*_r`` are non-dimensional (pb/2V, qc/2V, rb/2V).
+    ``*_p``, ``*_q``, and ``*_r`` are non-dimensional (pb/2V, qc/2V, rb/2V),
+    with the roll and yaw rates p', r' about the stability axes.
+
+    The math (AVL ``aoutput.f`` DERMATS). The solver gives each coefficient's
+    sensitivity ``U`` to the six unknowns u = (Vinf_x, Vinf_y, Vinf_z, wrot_x,
+    wrot_y, wrot_z), all in geometry axes. A stability derivative is the chain
+    rule ``dC/dx = U[:, :3] @ dVinf/dx + U[:, 3:] @ dwrot/dx``:
+
+    * alpha: ``dVinf/dalpha`` is ``vinf_a``. The stability-axis rates are held,
+      so the body rates turn with alpha, wrot_x = DIR (p' cos a - r' sin a) and
+      wrot_z = DIR (p' sin a + r' cos a), giving
+      ``dwrot/dalpha = (-wrot_z, 0, wrot_x)``. The moments' own axes turn too,
+      which adds ``dCl'/dalpha = Cn'`` and ``dCn'/dalpha = -Cl'``, plus the
+      direct ``CL_a``/``CD_a`` terms from the force routine.
+    * beta: ``dVinf/dbeta`` is ``vinf_b``; the rates do not change.
+    * p', r': ``dwrot/dp' = DIR (cos a, 0, sin a)`` and
+      ``dwrot/dr' = DIR (-sin a, 0, cos a)``; q: ``dwrot/dq = (0, 1, 0)``.
+      Times 2/bref (2/cref for q), since wrot = 2/bref * pb/2V.
+
+    ``dwrot/dalpha`` deliberately departs from AVL, whose formula carries an
+    extra DIR and so flips sign under NASA axes, contradicting its own source
+    comments ("= -WROT(3)", "= WROT(1)"). That made CL_a and Cm_a in a turn
+    depend on the output axes (0.8% / 1% on Supra at 30 deg bank).
     """
     dir_ = -1.0 if state.lnasa_sa else 1.0
-    ca = float(np.cos(state.alfa))
-    sa = float(np.sin(state.alfa))
-    w0 = float(state.wrot[0])
-    w2 = float(state.wrot[2])
+    ca, sa = math.cos(state.alfa), math.sin(state.alfa)
+    wx, _, wz = (float(w) for w in state.wrot)
+    rows = partial(_stability_rows, ca=ca, sa=sa, dir_=dir_)
 
-    wrot_rx = np.array([ca * dir_, 0.0, sa * dir_], dtype=np.float64)
-    wrot_rz = np.array([-sa * dir_, 0.0, ca * dir_], dtype=np.float64)
-    # d(wrot)/d(alpha) with the stability-axis rates held fixed: the
-    # derivative of a rotation about y, so it does not depend on DIR. AVL's
-    # aoutput.f builds it from DIR-signed rates and gets -wrot under NASA axes,
-    # contradicting its own comments ("= -WROT(3)", "= WROT(1)"); that made
-    # CL_a and Cm_a in a turn depend on the output axes (0.8% / 1% on Supra at
-    # 30 deg bank). Deliberate departure from AVL; see the user manual.
-    wrot_a = np.array([-w2, 0.0, w0], dtype=np.float64)
+    sens = rows(state.cltot_u, state.cytot_u, state.cdtot_u, state.cmtot_u)[:, :6]
+    totals = rows(state.cltot, state.cytot, state.cdtot, state.cmtot)
+    axes_turn = np.array([state.cltot_a, 0.0, state.cdtot_a, totals[5], 0.0, -totals[3]])
+    dvel, drot = sens[:, :3], sens[:, 3:]
+    per_unknown = {
+        "a": dvel @ state.vinf_a + drot @ np.array([-wz, 0.0, wx]) + axes_turn,
+        "b": dvel @ state.vinf_b,
+        "p": drot @ np.array([dir_ * ca, 0.0, dir_ * sa]) * (2.0 / state.bref),
+        "q": drot[:, 1] * (2.0 / state.cref),
+        "r": drot @ np.array([-dir_ * sa, 0.0, dir_ * ca]) * (2.0 / state.bref),
+    }
+    derivs = StabilityDerivatives(**{
+        f"{coef}_{x}": float(column[i])
+        for x, column in per_unknown.items()
+        for i, coef in enumerate(_STAB_COEFS)
+    })
 
-    cl_u = state.cltot_u
-    cy_u = state.cytot_u
-    cd_u = state.cdtot_u
-    cm_u = state.cmtot_u
-
-    crsax_u = cm_u[0, :] * ca + cm_u[2, :] * sa
-    cmsax_u = cm_u[1, :].copy()
-    cnsax_u = cm_u[2, :] * ca - cm_u[0, :] * sa
-    crsax_a = -float(state.cmtot[0]) * sa + float(state.cmtot[2]) * ca
-    cnsax_a = -float(state.cmtot[2]) * sa - float(state.cmtot[0]) * ca
-
-    bref = float(state.bref)
-    cref = float(state.cref)
-    p_scale = 2.0 / bref
-    q_scale = 2.0 / cref
-    r_scale = 2.0 / bref
-
-    cl_al = _chain_alpha(cl_u, state.vinf_a, wrot_a, float(state.cltot_a))
-    cy_al = _chain_alpha(cy_u, state.vinf_a, wrot_a)
-    cd_al = _chain_alpha(cd_u, state.vinf_a, wrot_a, float(state.cdtot_a))
-    cr_al = _chain_alpha(crsax_u, state.vinf_a, wrot_a, crsax_a)
-    cm_al = _chain_alpha(cmsax_u, state.vinf_a, wrot_a)
-    cn_al = _chain_alpha(cnsax_u, state.vinf_a, wrot_a, cnsax_a)
-
-    derivs = StabilityDerivatives(
-        CL_a=cl_al,
-        CL_b=_chain_beta(cl_u, state.vinf_b),
-        CL_p=_chain_rx(cl_u, wrot_rx) * p_scale,
-        CL_q=_chain_ry(cl_u) * q_scale,
-        CL_r=_chain_rz(cl_u, wrot_rz) * r_scale,
-        CY_a=cy_al,
-        CY_b=_chain_beta(cy_u, state.vinf_b),
-        CY_p=_chain_rx(cy_u, wrot_rx) * p_scale,
-        CY_q=_chain_ry(cy_u) * q_scale,
-        CY_r=_chain_rz(cy_u, wrot_rz) * r_scale,
-        CD_a=cd_al,
-        CD_b=_chain_beta(cd_u, state.vinf_b),
-        CD_p=_chain_rx(cd_u, wrot_rx) * p_scale,
-        CD_q=_chain_ry(cd_u) * q_scale,
-        CD_r=_chain_rz(cd_u, wrot_rz) * r_scale,
-        Cl_a=dir_ * cr_al,
-        Cl_b=dir_ * _chain_beta(crsax_u, state.vinf_b),
-        Cl_p=dir_ * _chain_rx(crsax_u, wrot_rx) * p_scale,
-        Cl_q=dir_ * _chain_ry(crsax_u) * q_scale,
-        Cl_r=dir_ * _chain_rz(crsax_u, wrot_rz) * r_scale,
-        Cm_a=cm_al,
-        Cm_b=_chain_beta(cmsax_u, state.vinf_b),
-        Cm_p=_chain_rx(cmsax_u, wrot_rx) * p_scale,
-        Cm_q=_chain_ry(cmsax_u) * q_scale,
-        Cm_r=_chain_rz(cmsax_u, wrot_rz) * r_scale,
-        Cn_a=dir_ * cn_al,
-        Cn_b=dir_ * _chain_beta(cnsax_u, state.vinf_b),
-        Cn_p=dir_ * _chain_rx(cnsax_u, wrot_rx) * p_scale,
-        Cn_q=dir_ * _chain_ry(cnsax_u) * q_scale,
-        Cn_r=dir_ * _chain_rz(cnsax_u, wrot_rz) * r_scale,
-    )
-
-    for n in range(state.ncontrol):
+    # Control sensitivities are per degree of deflection.
+    ncontrol = int(state.ncontrol)
+    controls = rows(state.cltot_d, state.cytot_d, state.cdtot_d, state.cmtot_d)[:, :ncontrol] / state.dtr
+    for n in range(ncontrol):
         name = state.control_names[n] if n < len(state.control_names) else f"d{n + 1}"
-        crs_d = float(state.cmtot_d[0, n] * ca + state.cmtot_d[2, n] * sa)
-        cms_d = float(state.cmtot_d[1, n])
-        cns_d = float(state.cmtot_d[2, n] * ca - state.cmtot_d[0, n] * sa)
-        derivs.CL_d[name] = _control_deriv_per_rad(state.cltot_d[n], state)
-        derivs.CY_d[name] = _control_deriv_per_rad(state.cytot_d[n], state)
-        derivs.CD_d[name] = _control_deriv_per_rad(state.cdtot_d[n], state)
-        derivs.Cl_d[name] = _control_deriv_per_rad(dir_ * crs_d, state)
-        derivs.Cm_d[name] = _control_deriv_per_rad(cms_d, state)
-        derivs.Cn_d[name] = _control_deriv_per_rad(dir_ * cns_d, state)
+        for i, coef in enumerate(_STAB_COEFS):
+            getattr(derivs, f"{coef}_d")[name] = float(controls[i, n])
 
     derivs.xnp, derivs.sm = compute_neutral_point(
         xcg=float(state.xyzref[0]),
-        cref=cref,
+        cref=float(state.cref),
         cl_a=derivs.CL_a,
         cm_a=derivs.Cm_a,
     )
-
     return derivs
 
 
@@ -267,90 +204,38 @@ class BodyAxisDerivatives:
 def compute_body_axis_derivatives(state: AVLState) -> BodyAxisDerivatives:
     """Extract body-axis derivative matrix from raw ``_u`` and ``_d`` arrays.
 
-    Control-surface rows are converted from AVL's per-degree sensitivities to
-    per-radian units. Velocity and rate rows are unchanged from ``DERMATB``.
+    The math (AVL ``aoutput.f`` DERMATB). Entry [row, col] is
+    d(coefficient col)/d(perturbation row), built from the geometry-axis
+    sensitivities ``U`` (CX..Cn by Vinf_x..wrot_z) as
+
+        value = (k_row * f_row) * f_col * U[col, row]
+
+    * ``f = (DIR, 1, DIR)`` for both x/y/z triples flips x and z from geometry
+      axes to the output axes, on the coefficient and on the perturbation.
+    * ``k = -1`` for u, v, w: a body moving at (u, v, w) sees the freestream
+      ``Vinf = -(u, v, w) / V``.
+    * ``k = 2/bref, 2/cref, 2/bref`` for p, q, r, since wrot = 2/bref * pb/2V.
+
+    Control rows are ``f_col * U_d[col, n]``, converted from AVL's per-degree
+    sensitivities to per radian.
     """
     dir_ = -1.0 if state.lnasa_sa else 1.0
     bref = float(state.bref)
     cref = float(state.cref)
     p_scale = (2.0 / bref) if abs(bref) > 1e-12 else 0.0
     q_scale = (2.0 / cref) if abs(cref) > 1e-12 else 0.0
-    r_scale = p_scale
 
-    cx_u = state.cftot_u[0, :]
-    cy_u = state.cftot_u[1, :]
-    cz_u = state.cftot_u[2, :]
-    cl_u = state.cmtot_u[0, :]
-    cm_u = state.cmtot_u[1, :]
-    cn_u = state.cmtot_u[2, :]
-
-    rows: list[str] = ["u", "v", "w", "p", "q", "r"]
-    values: list[list[float]] = [
-        [
-            -float(cx_u[0]),
-            -dir_ * float(cy_u[0]),
-            -float(cz_u[0]),
-            -float(cl_u[0]),
-            -dir_ * float(cm_u[0]),
-            -float(cn_u[0]),
-        ],
-        [
-            -dir_ * float(cx_u[1]),
-            -float(cy_u[1]),
-            -dir_ * float(cz_u[1]),
-            -dir_ * float(cl_u[1]),
-            -float(cm_u[1]),
-            -dir_ * float(cn_u[1]),
-        ],
-        [
-            -float(cx_u[2]),
-            -dir_ * float(cy_u[2]),
-            -float(cz_u[2]),
-            -float(cl_u[2]),
-            -dir_ * float(cm_u[2]),
-            -float(cn_u[2]),
-        ],
-        [
-            float(cx_u[3]) * p_scale,
-            dir_ * float(cy_u[3]) * p_scale,
-            float(cz_u[3]) * p_scale,
-            float(cl_u[3]) * p_scale,
-            dir_ * float(cm_u[3]) * p_scale,
-            float(cn_u[3]) * p_scale,
-        ],
-        [
-            dir_ * float(cx_u[4]) * q_scale,
-            float(cy_u[4]) * q_scale,
-            dir_ * float(cz_u[4]) * q_scale,
-            dir_ * float(cl_u[4]) * q_scale,
-            float(cm_u[4]) * q_scale,
-            dir_ * float(cn_u[4]) * q_scale,
-        ],
-        [
-            float(cx_u[5]) * r_scale,
-            dir_ * float(cy_u[5]) * r_scale,
-            float(cz_u[5]) * r_scale,
-            float(cl_u[5]) * r_scale,
-            dir_ * float(cm_u[5]) * r_scale,
-            float(cn_u[5]) * r_scale,
-        ],
-    ]
+    flip = np.array([dir_, 1.0, dir_, dir_, 1.0, dir_])
+    k = np.array([-1.0, -1.0, -1.0, p_scale, q_scale, p_scale])
+    sens = np.vstack((state.cftot_u, state.cmtot_u))[:, :6]  # (coefficient, unknown)
+    values = np.outer(k * flip, flip) * sens.T
 
     ncontrol = int(state.ncontrol)
-    for n in range(ncontrol):
-        rows.append(f"d{n + 1}")
-        values.append(
-            [
-                _control_deriv_per_rad(dir_ * float(state.cftot_d[0, n]), state),
-                _control_deriv_per_rad(float(state.cftot_d[1, n]), state),
-                _control_deriv_per_rad(dir_ * float(state.cftot_d[2, n]), state),
-                _control_deriv_per_rad(dir_ * float(state.cmtot_d[0, n]), state),
-                _control_deriv_per_rad(float(state.cmtot_d[1, n]), state),
-                _control_deriv_per_rad(dir_ * float(state.cmtot_d[2, n]), state),
-            ]
-        )
+    sens_d = np.vstack((state.cftot_d, state.cmtot_d))[:, :ncontrol]
+    controls = (flip[:, np.newaxis] * sens_d / state.dtr).T
 
-    return BodyAxisDerivatives(rows=rows, values=values)
+    rows = ["u", "v", "w", "p", "q", "r"] + [f"d{n + 1}" for n in range(ncontrol)]
+    return BodyAxisDerivatives(rows=rows, values=np.vstack((values, controls)).tolist())
 
 
 @dataclass
