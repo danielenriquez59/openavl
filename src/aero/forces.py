@@ -212,6 +212,10 @@ def bdforc(state: Any) -> Any:
         state.cltot_u[:] = (state.cltot_u + clbdy_u)
         state.cftot_u[:] = (state.cftot_u + cfbdy_u)
         state.cmtot_u[:] = (state.cmtot_u + cmbdy_u)
+        # The stability axes turn with alpha, tilting the body force between
+        # lift and drag. AVL's BDFORC omits this; the surfaces have it (CLS_A).
+        state.cltot_a = state.cltot_a - cdbdy[ib]
+        state.cdtot_a = state.cdtot_a + clbdy[ib]
 
     return state
 

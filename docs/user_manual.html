@@ -1124,6 +1124,16 @@ ctrl = solver.get_control_derivatives(axis=<span class="st">"stability"</span>)
         printout in turns. With zero rates the two agree.
       </p>
 
+      <p>
+        <strong>A second difference, for bodies:</strong> lift and drag are measured in
+        stability axes, which turn with alpha, so a change in alpha tilts each force
+        between lift and drag. AVL includes this in <code>CL_a</code> and <code>CD_a</code>
+        for surfaces but not for bodies. OpenAVL includes it for both, so in models with
+        bodies <code>CL_a</code> is lower by the body drag and <code>CD_a</code> higher by
+        the body lift than AVL prints: 0.4% in <code>CL_a</code> for the bodies-only
+        <code>supraf.avl</code>, and 0.015% in <code>CD_a</code> for Supra with its wing.
+      </p>
+
       <pre><code>body = solver.get_body_axis_derivatives()
 <span class="cm"># body.rows: ["u", "v", "w", "p", "q", "r", "d1", ...]</span>
 <span class="cm"># body.cols: ["CX", "CY", "CZ", "Cl", "Cm", "Cn"]</span>
