@@ -1159,7 +1159,8 @@ def build_solve_responses(
         }
     )
     messages.append({"type": "trefftz_data", **_build_trefftz_data(solver)})
-    messages.append({"type": "eigen_data", **_build_eigen_data(solver)})
     messages.append({"type": "surface_forces", "surfaces": _build_surface_forces(solver)})
+    # Last: eigenvalues() may re-solve, so build every other payload from the solve above first.
+    messages.append({"type": "eigen_data", **_build_eigen_data(solver)})
 
     return {"messages": messages}

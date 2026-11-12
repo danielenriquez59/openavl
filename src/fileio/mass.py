@@ -11,10 +11,6 @@ import numpy as np
 
 from openavl import constants as C
 
-_FLOAT_RE = re.compile(
-    r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eEdD][-+]?\d+)?",
-)
-
 
 @dataclass
 class MassProperties:
@@ -42,14 +38,20 @@ def _strip(text: str) -> str:
     return str(text or "").strip()
 
 
-def _get_floats(line: str, max_count: int = 0) -> list[float]:
-    """Extract floating-point values from a line (Fortran GETFLT-style)."""
-    clean = line.split("!")[0]
-    matches = _FLOAT_RE.findall(clean)
-    vals = [float(v.replace("d", "e").replace("D", "e")) for v in matches]
-    if max_count > 0:
-        return vals[:max_count]
-    return vals
+def _get_floats(text: str, max_count: int, line_no: int, line: str) -> list[float]:
+    """Read up to ``max_count`` numbers from ``text`` like Fortran GETFLT.
+
+    Text after ``!`` is ignored and every other token must be a number, so a
+    word such as ``fuselage2`` is not read as 2.0. Where AVL prints "Bad data
+    line ... ignored", this raises ValueError naming the line instead of
+    silently dropping that mass.
+    """
+    tokens = re.split(r"[\s,]+", text.split("!")[0].strip())
+    try:
+        vals = [float(t.replace("d", "e").replace("D", "e")) for t in tokens if t]
+    except ValueError:
+        raise ValueError(f"Bad data line {line_no} in mass file: {line.strip()!r}") from None
+    return vals[:max_count]
 
 
 def _apply_mass_properties(state: Any, props: MassProperties) -> None:
@@ -90,35 +92,37 @@ def parse_mass_text(text: str) -> MassProperties:
     sum_iyz = 0.0
     components: list[dict[str, float]] = []
 
-    for raw_line in text.splitlines():
+    for line_no, raw_line in enumerate(text.splitlines(), start=1):
         line = raw_line.rstrip("\r\n")
-        if not line:
+        if not line.strip() or line.lstrip()[0] in "#!":
             continue
 
         first = line[0]
-        if first in "#!":
-            continue
-
         if first == "*":
-            vals = _get_floats(line[1:], 10)
+            vals = _get_floats(line[1:], 10, line_no, line)
             for k, val in enumerate(vals):
                 fac[k] = val
             continue
 
         if first == "+":
-            vals = _get_floats(line[1:], 10)
+            vals = _get_floats(line[1:], 10, line_no, line)
             for k, val in enumerate(vals):
                 add[k] = val
             continue
 
-        eq = line.find("=")
+        # Look for "key = value" only before a "!" comment: AVL reads
+        # "1.0 0 0 0 ! cg = 0.3" as gravity = 0.3 and drops the mass.
+        eq = line.split("!")[0].find("=")
         if eq > 0:
             key = line[:eq]
-            rest = _strip(line[eq + 1 :])
+            rest = _strip(line[eq + 1 :].split("!")[0])
             parts = rest.split(None, 1)
             if not parts:
                 continue
-            value = float(parts[0])
+            vals = _get_floats(parts[0], 1, line_no, line)
+            if not vals:  # e.g. "g = ,": AVL reads a null value and keeps the default
+                continue
+            value = vals[0]
             unit = parts[1].strip() if len(parts) > 1 else ""
 
             if "Lunit" in key:
@@ -140,7 +144,7 @@ def parse_mass_text(text: str) -> MassProperties:
                 props.rho = value
                 continue
 
-        rinp = _get_floats(line, 10)
+        rinp = _get_floats(line, 10, line_no, line)
         if not rinp:
             continue
         while len(rinp) < 10:

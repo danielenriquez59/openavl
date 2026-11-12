@@ -172,3 +172,45 @@ def test_solver_loads_mass_file():
     assert solver.state.parval[C.IPMASS, 0] == pytest.approx(solver.model.mass.mass)
     assert solver.state.parval[C.IPRHO, 0] == pytest.approx(solver.model.mass.rho)
     assert solver.state.parval[C.IPGEE, 0] == pytest.approx(solver.model.mass.gee)
+
+
+# ---- Lines AVL ignores are errors, never silent extra mass ------------------
+
+_MASS_HEADER = """Lunit = 1.0 m
+Munit = 1.0 kg
+g   = 9.81
+#  mass   x     y    z
+   1.0   0.5   0.0  0.0
+"""
+
+
+@pytest.mark.parametrize(
+    "bad_line",
+    [
+        "fuselage2 data",  # the "2" was read as a 2 kg item at the origin
+        "wing 2.0 0.4 0 0",  # half-recognised: text then numbers
+        "mass = 5",  # unknown keyword fell through to the data reader
+        "  *1.0 2.0",  # a multiplier line must start in column 1, as in AVL
+    ],
+)
+def test_bad_data_line_raises_with_line_number(bad_line):
+    with pytest.raises(ValueError, match=r"Bad data line 6 in mass file"):
+        parse_mass_text(_MASS_HEADER + bad_line + "\n")
+
+
+def test_comments_are_skipped_and_do_not_set_keywords():
+    props = parse_mass_text(
+        _MASS_HEADER
+        + "   # 2 wing tips, indented comment\n"
+        + "   2.0 0.4 0.0 0.0  ! tip cg = 0.3, not a gravity setting\n"
+    )
+    assert props.mass == pytest.approx(3.0)
+    assert props.gee == pytest.approx(9.81)
+    assert props.cg[0] == pytest.approx((1.0 * 0.5 + 2.0 * 0.4) / 3.0)
+
+
+def test_keyword_without_a_number_keeps_the_default():
+    """AVL reads "g = ," as a null value; it must not crash or change g."""
+    props = parse_mass_text("g = ,\n   1.0 0.5 0.0 0.0\n")
+    assert props.gee == pytest.approx(MassProperties().gee)
+    assert props.mass == pytest.approx(1.0)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
 if TYPE_CHECKING:
     from openavl.analysis.amode import EigenAnalysisResult
     from openavl.analysis.deriv import (
@@ -13,6 +15,36 @@ if TYPE_CHECKING:
         StabilityDerivatives,
     )
 
+# Newton iterations AVL's MODE command runs before building the system matrix.
+_MODE_NITER = 10
+
+
+def solve_inputs(state: Any) -> tuple[np.ndarray, ...]:
+    """Copy what a user can change between solves: run case, constraints, variables."""
+    return (
+        state.parval[:, 0].copy(),
+        state.conval[:, 0].copy(),
+        state.icon[:, 0].copy(),
+        state.delcon.copy(),
+        state.wrot.copy(),
+        np.array([state.alfa, state.beta, state.lsa_rates], dtype=np.float64),
+    )
+
+
+def _resolve_for_modes(self) -> None:
+    """Re-solve before a mode analysis, as AVL's MODE command does.
+
+    Skipped when nothing changed since the last :meth:`execute_run`. A last
+    solve without trim (``max_iter=0``) is refreshed without trim, so the
+    user's alpha and rates are kept rather than driven by the constraints.
+    """
+    max_iter = _MODE_NITER
+    if self._last_solve is not None:
+        last_max_iter, inputs = self._last_solve
+        if all(np.array_equal(a, b) for a, b in zip(inputs, solve_inputs(self.state))):
+            return
+        max_iter = min(max_iter, last_max_iter)
+    self.execute_run(max_iter=max_iter)
 
 def get_stability_derivatives(self) -> StabilityDerivatives:
     """Extract stability-axis force, moment, and control derivatives.
@@ -169,12 +201,16 @@ def eigenvalues(self, use_approx: bool = False) -> EigenAnalysisResult:
 
     Notes
     -----
-    Requires a previously converged solve with positive mass, inertia, and
-    airspeed. Eigenanalysis at an untrimmed or unconverged point may
-    return empty mode lists or non-physical roots.
+    Like AVL's MODE command, this first re-solves the run case if anything
+    changed since the last :meth:`execute_run` (up to 10 Newton iterations,
+    or none if that solve used ``max_iter=0``), so the modes always use
+    derivatives about the current CG and parameters. Requires positive mass,
+    inertia, and airspeed. Eigenanalysis at an unconverged point may return
+    empty mode lists or non-physical roots.
     """
     from openavl.analysis.amode import solve_eigenvalues
 
+    _resolve_for_modes(self)
     return solve_eigenvalues(self.state, use_approx=use_approx)
 
 def get_system_matrices(
@@ -207,9 +243,14 @@ def get_system_matrices(
     tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
         State matrix ``A`` (12×12), control matrix ``B`` (12×n_control),
         and residual vector ``R`` (length 12).
+
+    Notes
+    -----
+    Re-solves the run case first if needed, as :meth:`eigenvalues` does.
     """
     from openavl.analysis.amode import apply_body_axis_signs, build_appmat, build_sysmat
 
+    _resolve_for_modes(self)
     if use_approx:
         asys, bsys, rsys = build_appmat(self.state, ir)
     else:

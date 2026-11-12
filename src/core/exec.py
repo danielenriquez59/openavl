@@ -100,8 +100,8 @@ def exec_solve(
     aero(state)
 
     nvtot = state.nvtot
-    ivmax = C.IVMAX
     ndmax = state.ndmax
+    ivmax = C.IVTOT + ndmax  # sized like state.icon, so any control count fits
 
     if niter > 0:
         vsys = np.zeros((ivmax, ivmax), dtype=np.float64)

@@ -8,7 +8,7 @@ import numpy as np
 
 from openavl import constants as C
 from openavl.analysis.deriv import compute_stability_derivatives
-from openavl.core.reporting import reported_totals
+from openavl.core.reporting import nasa_dir, reported_totals
 
 
 def get_results(self) -> dict[str, Any]:
@@ -121,6 +121,8 @@ def get_aero_accel(self) -> dict[str, Any]:
     dict[str, Any]
         Dynamic pressure, dimensional body-axis force and moment vectors,
         linear and rotational body-axis accelerations, mass, and inertia.
+        All vectors and the inertia tensor use the body axes of the reported
+        coefficients (x forward, z down when ``lnasa_sa`` is set).
         With SI geometry and mass-file units, linear acceleration is in
         m/s² and rotational acceleration is in rad/s².
 
@@ -139,14 +141,19 @@ def get_aero_accel(self) -> dict[str, Any]:
     if mass <= 0.0:
         raise ValueError("mass must be positive to calculate acceleration")
 
-    inertia = np.array(
+    # Loads come from ``reported_totals`` in the output axes (x and z
+    # flipped by DIR), while ``wrot`` and the inertia tensor are in geometry
+    # axes. Rotate both into the output axes so Euler's equation is
+    # evaluated in a single frame.
+    axes = np.diag([nasa_dir(s), 1.0, nasa_dir(s)])
+    inertia = axes @ np.array(
         [
             [s.parval[C.IPIXX, ir], s.parval[C.IPIXY, ir], s.parval[C.IPIZX, ir]],
             [s.parval[C.IPIXY, ir], s.parval[C.IPIYY, ir], s.parval[C.IPIYZ, ir]],
             [s.parval[C.IPIZX, ir], s.parval[C.IPIYZ, ir], s.parval[C.IPIZZ, ir]],
         ],
         dtype=np.float64,
-    )
+    ) @ axes
     reported = reported_totals(s)
     cl, cm, cn = reported["CM"]
 
@@ -161,7 +168,7 @@ def get_aero_accel(self) -> dict[str, Any]:
     )
 
     linear_acceleration = force_body / mass
-    omega_body = s.wrot * velocity / s.unitl
+    omega_body = axes @ s.wrot * velocity / s.unitl
     angular_momentum = inertia @ omega_body
     rotational_acceleration = np.linalg.solve(
         inertia,

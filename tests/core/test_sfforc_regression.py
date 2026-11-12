@@ -76,6 +76,9 @@ STRIPS = (0, 7, 23, 41, 50)
 
 
 def _fix(s, alpha, beta, p, q, r, elev=None):
+    # The pinned values were generated with body-axis rates; keep that flow
+    # now that rate constraints default to stability axes as in AVL.
+    s.state.lsa_rates = False
     s.set_constraint("alpha", "alpha", alpha)
     s.set_constraint("beta", "beta", beta)
     s.set_constraint("pb/2V", "pb/2V", p)
