@@ -210,6 +210,7 @@ class AVLSolver:
         model: AVLModel,
         *,
         debug: bool = False,
+        max_vortices: int = C.NVMAX,
         **state_options: Any,
     ) -> AVLSolver:
         """Construct a solver from a parsed model without loading geometry."""
@@ -219,6 +220,7 @@ class AVLSolver:
             model,
             debug=debug,
             state_options=state_options,
+            max_vortices=max_vortices,
         )
         return solver
 

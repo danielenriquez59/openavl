@@ -334,8 +334,11 @@ class AVLState:
     con_names: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_model(cls, model: AVLModel, **options: Any) -> AVLState:
-        """Allocate state arrays and set run-case defaults."""
+    def from_model(cls, model: AVLModel, *, max_vortices: int = C.NVMAX, **options: Any) -> AVLState:
+        """Allocate state arrays and set run-case defaults.
+
+        Raises ``ValueError`` if the lattice has more than ``max_vortices`` vortices.
+        """
         has_cdcl = any(
             sec.cdcl and len(sec.cdcl) >= 6 and sec.cdcl[3] != 0.0
             for surf in model.surfaces
@@ -358,6 +361,11 @@ class AVLState:
             nstrip += n_span * copies
             nvor += n_span * n_chord * copies
 
+        if nvor > max_vortices:
+            raise ValueError(
+                f"Model has {nvor} vortices, more than the limit of {max_vortices}; "
+                "reduce Nchord/Nspan."
+            )
         nvmax = max(1, nvor)
         nstrmax = max(1, nstrip)
 
@@ -379,6 +387,11 @@ class AVLState:
             copies = 2 if body.yduplicate is not None else 1
             nbody += copies
             nlnode += n_nodes * copies
+        if nlnode > C.NLMAX:
+            raise ValueError(
+                f"Model has {nlnode} body nodes, more than the limit of {C.NLMAX}; "
+                "reduce Nbody."
+            )
         nlmax = max(1, nlnode)
 
         run_defaults = {**RUN_DEFAULTS, "cd0": float(model.header.cdp), **options}

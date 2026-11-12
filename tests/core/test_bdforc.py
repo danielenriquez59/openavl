@@ -61,6 +61,8 @@ class _BodyOnlyState:
         self.cdtot = 0.0
         self.cytot = 0.0
         self.cltot = 0.0
+        self.cdtot_a = 0.0
+        self.cltot_a = 0.0
         self.cftot = np.zeros(3, dtype=np.float64)
         self.cmtot = np.zeros(3, dtype=np.float64)
         self.cdtot_u = np.zeros(6, dtype=np.float64)

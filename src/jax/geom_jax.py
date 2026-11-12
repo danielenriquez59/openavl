@@ -999,17 +999,24 @@ def run_analysis_with_geometry(
     topo: GeometryTopology,
     baseline: AnalysisGeometry,
     refs: ReferenceQuantities,
+    *,
+    lvisc: bool = False,
 ) -> AnalysisResult:
-    """Compose differentiable geometry update with full force analysis."""
+    """Compose differentiable geometry update with full force analysis.
+
+    ``lvisc`` adds the CDCL viscous drag; pass the model's ``state.lvisc``.
+    """
     forces_checkpoint = _make_forces_checkpoint(
         iysym=int(topo.iysym),
         include_body=baseline.body.nl.shape[0] > 0,
+        lvisc=lvisc,
     )
     geom = update_geometry(topo, params, baseline, mach=flow.mach)
     return run_analysis(
         flow,
         geom,
         refs,
+        lvisc=lvisc,
         use_checkpoint=True,
         forces_checkpoint=forces_checkpoint,
     )

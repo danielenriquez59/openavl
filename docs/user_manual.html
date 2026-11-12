@@ -358,8 +358,8 @@
       <p>
         OpenAVL is a pure Python reimplementation of the Fortran AVL solver. It provides the same
         vortex-lattice aerodynamics computations as the original code while exposing a clean,
-        object-oriented API suitable for scripting, optimization loops, and future automatic
-        differentiation via JAX.
+        object-oriented API suitable for scripting, optimization loops, and automatic
+        differentiation via the optional JAX backend.
       </p>
 
       <h3>What OpenAVL does</h3>
@@ -376,12 +376,6 @@
         <li>Applies piecewise-quadratic CD(CL) viscous drag polars per surface or section.</li>
         <li>Caps sectional lift coefficients per wing via <code>clmax</code> (Geometry API only) to approximate stall onset and its effect on integrated forces and moments.</li>
         <li>Visualizes aircraft geometry, spanwise lift distributions, and pressure coefficient (<code>Cp</code>) via <code>AVLSolver.plot_aircraft()</code>, <code>plot_lift_distribution()</code>, and <code>plot_cp()</code>.</li>
-      </ul>
-
-      <h3>What OpenAVL does not do (yet)</h3>
-      <ul>
-        <li>Interactive GUI (<code>openavl.gui</code> is a placeholder namespace only).</li>
-        <li>JAX automatic differentiation (planned for a future phase).</li>
       </ul>
 
       <h3>Project structure</h3>
@@ -864,7 +858,7 @@ solver.execute_run()
 
       <div class="callout callout-info">
         <strong>Note</strong>
-        Rotation rate names are case-sensitive for the second letter V (e.g., <code>pb/2V</code>
+        Rotation rate names accept the final V in either case (e.g., <code>pb/2V</code>
         and <code>pb/2v</code> are both accepted; see solver.py for the full alias list).
       </div>
     </section>
@@ -1122,6 +1116,16 @@ ctrl = solver.get_control_derivatives(axis=<span class="st">"stability"</span>)
         <code>Cm_a</code> on Supra at 30&deg; bank). OpenAVL uses the correct expression,
         which AVL's own source comments state, so these values differ slightly from AVL's
         printout in turns. With zero rates the two agree.
+      </p>
+
+      <p>
+        <strong>A second difference, for bodies:</strong> lift and drag are measured in
+        stability axes, which turn with alpha, so a change in alpha tilts each force
+        between lift and drag. AVL includes this in <code>CL_a</code> and <code>CD_a</code>
+        for surfaces but not for bodies. OpenAVL includes it for both, so in models with
+        bodies <code>CL_a</code> is lower by the body drag and <code>CD_a</code> higher by
+        the body lift than AVL prints: 0.4% in <code>CL_a</code> for the bodies-only
+        <code>supraf.avl</code>, and 0.015% in <code>CD_a</code> for Supra with its wing.
       </p>
 
       <pre><code>body = solver.get_body_axis_derivatives()
@@ -1755,8 +1759,8 @@ pytest -m reference</code></pre>
       <h3>Fortran reference binaries</h3>
       <p>
         Compiled Fortran executables in <code>tests/data/avl/ref/</code> are used by the
-        <code>reference</code> tests to produce ground-truth values. These run the original AVL algorithm and
-        compare outputs to the Python port.
+        <code>reference</code> tests to produce ground-truth values. These run the original AVL algorithm, and the
+        tests compare their outputs to the Python port.
       </p>
     </section>
 

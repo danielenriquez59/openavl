@@ -20,6 +20,7 @@ def initialize_solver(
     state_options: dict[str, Any],
     geo_file: Path | None = None,
     mass_file: Path | None = None,
+    max_vortices: int = C.NVMAX,
 ) -> None:
     """Initialize a solver facade from an already parsed AVL model."""
     check_state_options(solver, state_options)
@@ -29,7 +30,7 @@ def initialize_solver(
     solver.geo_file = geo_file
     solver.mass_file = mass_file
     solver.model = model
-    solver.state = AVLState.from_model(model, debug=debug, **state_options)
+    solver.state = AVLState.from_model(model, debug=debug, max_vortices=max_vortices, **state_options)
     build_geometry(solver.state, model)
     solver.state.lgeo = True
     solver.state.lenc = True

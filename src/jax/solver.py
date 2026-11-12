@@ -44,7 +44,8 @@ class JaxAVLSolver:
         self._geom = snapshot_analysis_geometry(state)
         self._refs = snapshot_refs(state)
         self._use_jit = use_jit
-        self._jit_fn = make_run_analysis_jit(self._geom, self._refs)
+        self._lvisc = bool(state.lvisc)  # on when the model has CDCL data, as in NumPy
+        self._jit_fn = make_run_analysis_jit(self._geom, self._refs, lvisc=self._lvisc)
 
     @property
     def numpy_solver(self) -> AVLSolver:
@@ -62,7 +63,7 @@ class JaxAVLSolver:
             flow = snapshot_flow(self._numpy_solver.state)
         if self._use_jit:
             return self._jit_fn(flow)
-        return run_analysis(flow, self._geom, self._refs)
+        return run_analysis(flow, self._geom, self._refs, lvisc=self._lvisc)
 
     def grad(self, output: str, flow: FlowCondition | None = None):
         """Gradient of a scalar output coefficient w.r.t. ``flow``."""

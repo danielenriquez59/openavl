@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openavl import constants as C
-from openavl.parser import parse_avl_file, prepare_model
+from openavl.parser import parse_avl, parse_avl_file, prepare_model
 from openavl.state import AVLState
 from tests.helpers import GEOMETRIES_DIR, load_json_fixture
 
@@ -67,3 +67,21 @@ def test_supra_state_body_allocation(fixtures_dir):
     assert state.nlmax == expected["nlnode"]
     assert state.rl.shape[1] >= expected["nlnode"]
     assert state.radl.size >= expected["nlnode"]
+
+
+def test_from_model_rejects_lattice_above_nvmax():
+    """More than C.NVMAX vortices raises before any lattice arrays are allocated."""
+    text = "Big\n0.0\n0 0 0\n1.0 1.0 1.0\n0 0 0\nSURFACE\nWing\n100 1.0 60 1.0\nSECTION\n0 0 0 1 0\nSECTION\n0 1 0 1 0\n"
+    with pytest.raises(ValueError, match=rf"6000 vortices.*limit of {C.NVMAX}"):
+        AVLState.from_model(parse_avl(text))
+
+
+def test_from_model_rejects_body_nodes_above_nlmax():
+    """More than C.NLMAX body nodes raises before any body arrays are allocated."""
+    text = "Big\n0.0\n0 0 0\n1.0 1.0 1.0\n0 0 0\nBODY\nFuse\n300 1.0\nYDUPLICATE\n0.0\n"
+    model = parse_avl(text)
+    body = model.bodies[0]
+    # Stand in for a BFIL thread so the body is counted.
+    body.body_thread_x, body.body_thread_y, body.body_thread_t = [0.0, 1.0], [0.0, 0.0], [0.1, 0.1]
+    with pytest.raises(ValueError, match=rf"600 body nodes.*limit of {C.NLMAX}.*Nbody"):
+        AVLState.from_model(model)

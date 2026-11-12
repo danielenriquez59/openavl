@@ -58,8 +58,12 @@ def _strip_lift_drag_dirs(
     ensz: jnp.ndarray,
     vinf: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Local strip lift and drag unit vectors."""
-    spn = jnp.stack([jnp.zeros_like(ensy), ensy, -ensz], axis=0)
+    """Local strip lift and drag unit vectors.
+
+    SPN = (0, ENSZ, -ENSY) is the strip normal crossed with the x chordline
+    (``aero.f``); lift is VINF x SPN, defaulting to +z when that is zero.
+    """
+    spn = jnp.stack([jnp.zeros_like(ensy), ensz, -ensy], axis=0)
     udrag = vinf
     ulift = _cross(udrag, spn)
     ulift = _normalize(ulift, jnp.array([0.0, 0.0, 1.0]))
@@ -687,6 +691,29 @@ def _build_vortex_to_strip(state: Any) -> np.ndarray:
     return v2s
 
 
+def _strip_map_from_state(state: Any) -> StripMap:
+    """Strip indexing arrays, cut to the real strip count.
+
+    ``AVLState`` pads strip and vortex arrays to at least one entry; with no
+    surfaces (bodies only) that phantom strip would index the empty
+    per-surface arrays.
+    """
+    ns = int(state.nstrip)
+    lssurf = jnp.asarray(state.lssurf[:ns], dtype=jnp.int32)
+    return StripMap(
+        vortex_to_strip=jnp.asarray(_build_vortex_to_strip(state)),
+        ijfrst=jnp.asarray(state.ijfrst[:ns]),
+        nvstrp=jnp.asarray(state.nvstrp[:ns]),
+        strip_to_surface=lssurf,
+        jfrst=jnp.asarray(state.jfrst),
+        nj=jnp.asarray(state.nj),
+        lstripoff=jnp.asarray(state.lstripoff[:ns]),
+        lviscstrp=jnp.asarray(state.lviscstrp[:ns]),
+        lssurf=lssurf,
+        lncomp=jnp.asarray(state.lncomp),
+    )
+
+
 def force_geometry_from_state(state: Any) -> ForceGeometry:
     """Extract JAX force geometry from a solved NumPy ``AVLState`` (for tests)."""
     clmax_surf = np.asarray(state.clmax_surf[: state.nsurf], dtype=np.float64)
@@ -694,47 +721,34 @@ def force_geometry_from_state(state: Any) -> ForceGeometry:
         raise NotImplementedError(
             "JAX force integration does not yet support clmax_surf sectional-lift clipping"
         )
-    v2s = _build_vortex_to_strip(state)
-    strip_to_surface = np.asarray(state.lssurf, dtype=np.int32)
-    smap = StripMap(
-        vortex_to_strip=jnp.asarray(v2s),
-        ijfrst=jnp.asarray(state.ijfrst),
-        nvstrp=jnp.asarray(state.nvstrp),
-        strip_to_surface=jnp.asarray(strip_to_surface),
-        jfrst=jnp.asarray(state.jfrst),
-        nj=jnp.asarray(state.nj),
-        lstripoff=jnp.asarray(state.lstripoff),
-        lviscstrp=jnp.asarray(state.lviscstrp),
-        lssurf=jnp.asarray(state.lssurf),
-        lncomp=jnp.asarray(state.lncomp),
-    )
+    ns, nv = int(state.nstrip), int(state.nvor)
     return ForceGeometry(
-        rv1=jnp.asarray(state.rv1),
-        rv2=jnp.asarray(state.rv2),
-        rv=jnp.asarray(state.rv),
-        rc=jnp.asarray(state.rc),
-        env=jnp.asarray(state.env),
-        dxv=jnp.asarray(state.dxv),
-        rle=jnp.asarray(state.rle),
-        rle1=jnp.asarray(state.rle1),
-        rle2=jnp.asarray(state.rle2),
-        chord=jnp.asarray(state.chord),
-        chord1=jnp.asarray(state.chord1),
-        chord2=jnp.asarray(state.chord2),
-        wstrip=jnp.asarray(state.wstrip),
-        ensy=jnp.asarray(state.ensy),
-        ensz=jnp.asarray(state.ensz),
-        ess=jnp.asarray(state.ess),
-        ainc=jnp.asarray(state.ainc),
-        xsref=jnp.asarray(state.xsref),
-        ysref=jnp.asarray(state.ysref),
-        zsref=jnp.asarray(state.zsref),
+        rv1=jnp.asarray(state.rv1[:, :nv]),
+        rv2=jnp.asarray(state.rv2[:, :nv]),
+        rv=jnp.asarray(state.rv[:, :nv]),
+        rc=jnp.asarray(state.rc[:, :nv]),
+        env=jnp.asarray(state.env[:, :nv]),
+        dxv=jnp.asarray(state.dxv[:nv]),
+        rle=jnp.asarray(state.rle[:, :ns]),
+        rle1=jnp.asarray(state.rle1[:, :ns]),
+        rle2=jnp.asarray(state.rle2[:, :ns]),
+        chord=jnp.asarray(state.chord[:ns]),
+        chord1=jnp.asarray(state.chord1[:ns]),
+        chord2=jnp.asarray(state.chord2[:ns]),
+        wstrip=jnp.asarray(state.wstrip[:ns]),
+        ensy=jnp.asarray(state.ensy[:ns]),
+        ensz=jnp.asarray(state.ensz[:ns]),
+        ess=jnp.asarray(state.ess[:, :ns]),
+        ainc=jnp.asarray(state.ainc[:ns]),
+        xsref=jnp.asarray(state.xsref[:ns]),
+        ysref=jnp.asarray(state.ysref[:ns]),
+        zsref=jnp.asarray(state.zsref[:ns]),
         ssurf=jnp.asarray(state.ssurf),
         cavesurf=jnp.asarray(state.cavesurf),
         imags=jnp.asarray(state.imags),
         lfload=jnp.asarray(state.lfload),
-        clcd=jnp.asarray(state.clcd),
-        strip_map=smap,
+        clcd=jnp.asarray(state.clcd[:ns]),
+        strip_map=_strip_map_from_state(state),
         nbody=int(state.nbody),
     )
 
@@ -763,25 +777,13 @@ def body_geometry_from_state(state: Any) -> BodyGeometry:
 
 def trefftz_geometry_from_state(state: Any) -> TrefftzGeometry:
     """Extract Trefftz geometry from ``AVLState``."""
-    v2s = _build_vortex_to_strip(state)
-    smap = StripMap(
-        vortex_to_strip=jnp.asarray(v2s),
-        ijfrst=jnp.asarray(state.ijfrst),
-        nvstrp=jnp.asarray(state.nvstrp),
-        strip_to_surface=jnp.asarray(state.lssurf),
-        jfrst=jnp.asarray(state.jfrst),
-        nj=jnp.asarray(state.nj),
-        lstripoff=jnp.asarray(state.lstripoff),
-        lviscstrp=jnp.asarray(state.lviscstrp),
-        lssurf=jnp.asarray(state.lssurf),
-        lncomp=jnp.asarray(state.lncomp),
-    )
+    ns, nv = int(state.nstrip), int(state.nvor)
     return TrefftzGeometry(
-        rv1=jnp.asarray(state.rv1),
-        rv2=jnp.asarray(state.rv2),
-        rc=jnp.asarray(state.rc),
-        chord=jnp.asarray(state.chord),
-        strip_map=smap,
+        rv1=jnp.asarray(state.rv1[:, :nv]),
+        rv2=jnp.asarray(state.rv2[:, :nv]),
+        rc=jnp.asarray(state.rc[:, :nv]),
+        chord=jnp.asarray(state.chord[:ns]),
+        strip_map=_strip_map_from_state(state),
         iysym=int(state.iysym),
         izsym=int(state.izsym),
         ysym=jnp.asarray(state.ysym),
