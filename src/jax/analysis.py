@@ -192,5 +192,18 @@ def run_analysis_jit(
     lvisc: bool = False,
     lnfld_wv: bool = False,
 ) -> AnalysisResult:
-    """JIT-compiled version of :func:`run_analysis` (geometry held constant)."""
-    return make_run_analysis_jit(geom, refs, lvisc=lvisc, lnfld_wv=lnfld_wv)(flow)
+    """JIT-compiled version of :func:`run_analysis` (geometry held constant).
+
+    The compiled runner of the last ``geom``/``refs`` pair is reused.
+    """
+    global _LAST_RUNNER
+    key = (id(geom), id(refs), lvisc, lnfld_wv)
+    if _LAST_RUNNER[0] != key:
+        _LAST_RUNNER = (key, make_run_analysis_jit(geom, refs, lvisc=lvisc, lnfld_wv=lnfld_wv))
+    return _LAST_RUNNER[1](flow)
+
+
+# Keyed by id: the runner closes over its geom and refs, so they stay alive, and
+# their ids unique, while it is cached. One entry bounds the memory (the N x N
+# matrices); use make_run_analysis_jit to keep runners for several geometries.
+_LAST_RUNNER: tuple = (None, None)

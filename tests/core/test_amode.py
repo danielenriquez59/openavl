@@ -11,10 +11,10 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.amode import build_appmat, build_sysmat, identify_modes, runchk, solve_eigenvalues
+from openavl.analysis.amode import build_appmat, build_sysmat, identify_modes, runchk, solve_eigenvalues
 from openavl.analysis.amode import _build_mass_matrices, compute_eigenmode_metrics
 from openavl.math.util import m3inv
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR, REF_DIR
 
@@ -201,9 +201,41 @@ def test_plane_eigenanalysis():
             stable += 1
     assert stable >= len(result.eigenvalues) // 2
 
-    names = {mode.name.split()[0] for mode in result.modes}
-    assert "short" in names or "phugoid" in names or "longitudinal" in names
-    assert "Dutch" in names or "roll" in names or "spiral" in names or "lateral" in names
+
+SUPRA_AVL = GEOMETRIES_DIR / "supra.avl"
+SUPRA_MASS = GEOMETRIES_DIR.parent / "mass" / "supra.mass"
+
+
+@pytest.mark.skipif(not SUPRA_MASS.is_file(), reason="supra.mass not found")
+@pytest.mark.parametrize("bank", [0.0, 30.0])
+def test_supra_modes_get_their_classical_names(bank: float) -> None:
+    """The five classical modes, each named once, level and in a 30 deg turn.
+
+    The old rule summed eigenvector entries in mixed units, so the phugoid and
+    the spiral, whose position entries are large, were named position/heading.
+    """
+    solver = AVLSolver(SUPRA_AVL, SUPRA_MASS)
+    solver.set_parameter("bank", bank)
+    solver.setup_trim(1)
+    modes = {mode.name: mode.eigenvalue for mode in solver.eigenvalues().modes}
+    assert set(modes) == {"short period", "phugoid", "Dutch roll", "roll subsidence", "spiral"}
+    assert abs(modes["short period"].imag) > abs(modes["phugoid"].imag) > 0.0
+    assert modes["roll subsidence"].imag == modes["spiral"].imag == 0.0
+    assert abs(modes["roll subsidence"].real) > abs(modes["spiral"].real)
+
+
+def test_slow_short_period_is_not_called_phugoid() -> None:
+    """A 0.1 Hz pitch oscillation led by angle of attack is the short period."""
+    vec = np.zeros(C.JETOT, dtype=np.complex128)
+    lam = complex(-0.3, 2.0 * math.pi * 0.1)
+    vec[C.JEW], vec[C.JEU] = 10.0, 1.0  # w/V dominates u/V at V = 10
+    vec[C.JEQ] = 0.5 * lam
+    vec[C.JETH] = 0.5
+    (mode,) = identify_modes([lam], vec[:, None], vee=10.0, bref=1.0, unitl=1.0)
+    assert mode.name == "short period"
+    vec[C.JEU], vec[C.JEW] = 10.0, 1.0  # speed dominates: phugoid
+    (mode,) = identify_modes([lam], vec[:, None], vee=10.0, bref=1.0, unitl=1.0)
+    assert mode.name == "phugoid"
 
 
 def test_compute_eigenmode_metrics():

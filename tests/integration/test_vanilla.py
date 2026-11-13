@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import pytest
 
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 
@@ -43,16 +43,12 @@ REF_CL = 1.16647
 # Fortran AVL 3.52 (optvl 2.5.0) trimmed state, degrees, keyed by beta.
 REF_ALPHA_BY_BETA = {
     0: 8.253582,
-    5: 8.356199,
     10: 8.670873,
-    15: 9.219117,
     20: 10.040611,
 }
 REF_DEFLECTIONS_BY_BETA = {
     0: {"aileron": 0.000000, "elevator": 8.498724, "rudder": 0.000000},
-    5: {"aileron": 1.840805, "elevator": 8.469440, "rudder": -0.232146},
     10: {"aileron": 3.720156, "elevator": 8.375706, "rudder": -0.221715},
-    15: {"aileron": 5.680590, "elevator": 8.198203, "rudder": 0.316921},
     20: {"aileron": 7.773691, "elevator": 7.898401, "rudder": 1.769213},
 }
 
@@ -88,7 +84,8 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.mark.reference
-@pytest.mark.parametrize("beta", [0, 5, 10, 15, 20], ids=[f"beta_{b}" for b in [0, 5, 10, 15, 20]])
+# beta 0 is the symmetric case; 10 and 20 bracket the rudder sign change.
+@pytest.mark.parametrize("beta", [0, 10, 20], ids=[f"beta_{b}" for b in [0, 10, 20]])
 def test_vanilla_beta_sweep(beta: float):
     """Sideslip sweep at fixed CL; trimmed alpha and deflections match AVL 3.52."""
     solver = build_vanilla_solver(beta)

@@ -35,15 +35,9 @@ def _build_vortex_to_strip(state: Any) -> np.ndarray:
 def _rebuild_aicn(state: Any) -> np.ndarray:
     """Reconstruct the unfactored AIC matrix (mirrors ``setup`` before ``ludcmp``)."""
     nvor = state.nvor
-    aicn = np.zeros((nvor, nvor), dtype=np.float64)
-
-    for i in range(nvor):
-        for j in range(nvor):
-            aicn[i, j] = (
-                state.wc_gam[0, i, j] * state.enc[0, i]
-                + state.wc_gam[1, i, j] * state.enc[1, i]
-                + state.wc_gam[2, i, j] * state.enc[2, i]
-            )
+    wc = state.wc_gam[:, :nvor, :nvor]
+    enc = state.enc[:, :nvor, np.newaxis]
+    aicn = wc[0] * enc[0] + wc[1] * enc[1] + wc[2] * enc[2]
 
     for n in range(state.nsurf):
         if state.lfwake[n]:

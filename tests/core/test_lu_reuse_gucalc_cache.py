@@ -10,7 +10,7 @@ import pytest
 
 from openavl.analysis.deriv import compute_stability_derivatives
 from openavl.math.linalg import baksub, ludcmp
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 from tests.helpers import GEOMETRIES_DIR
 
 # openavl.core re-exports the setup() function under the submodule's name.

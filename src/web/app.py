@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from functools import partial
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -274,9 +275,28 @@ async def _handle_message(session: SessionState, websocket: WebSocket, data: dic
         await _send_json(websocket, error)
 
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """Accept a browser page only from a loopback address (the GUI's own page).
+
+    Browsers do not apply CORS to WebSockets, so without this any website the
+    user visits could drive the solver. Checking the host name, not just that
+    Origin matches Host, also stops DNS rebinding. Non-browser clients send no
+    Origin and are allowed.
+    """
+    if origin is None:
+        return True
+    return urlsplit(origin).hostname in _LOOPBACK_HOSTS
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """Stateful WebSocket endpoint with per-connection solver isolation."""
+    if not _origin_allowed(websocket.headers.get("origin")):
+        await websocket.close(code=1008)  # policy violation; rejects the handshake
+        return
     await websocket.accept()
     session = create_session()
     touch_session(session)

@@ -1,4 +1,4 @@
-"""Tests for openavl.ba_trans."""
+"""Tests for openavl.aero.ba_trans."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openavl.ba_trans import ba2sa_mat, ba2wa_mat
+from openavl.aero.ba_trans import ba2sa_mat, ba2wa_mat
 from tests.helpers import REF_DIR
 
 pytestmark = pytest.mark.core

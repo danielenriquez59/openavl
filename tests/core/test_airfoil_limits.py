@@ -18,7 +18,7 @@ import pytest
 from openavl import constants as C
 from openavl.fileio.parser import parse_avl
 from openavl.geom.airfoil import build_camber_slope, build_naca_slope
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

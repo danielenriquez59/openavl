@@ -1,11 +1,11 @@
-"""Tests for openavl.aic."""
+"""Tests for openavl.aero.aic."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from openavl.aic import srdset, srdvelc, vorvelc, vsrd, vvor
+from openavl.aero.aic import srdset, srdvelc, vorvelc, vsrd, vvor
 from tests.helpers import load_json_fixture
 
 pytestmark = pytest.mark.core

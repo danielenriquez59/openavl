@@ -1,11 +1,11 @@
-"""Tests for openavl.spline."""
+"""Tests for openavl.geom.spline."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from openavl.spline import deval, seval, spline, splind
+from openavl.geom.spline import deval, seval, spline, splind
 from tests.helpers import load_json_fixture, run_ref_binary
 
 pytestmark = pytest.mark.core

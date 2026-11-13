@@ -19,7 +19,7 @@ from openavl import constants as C
 from openavl.core.reporting import reported_totals
 from openavl.fileio.parser import parse_avl, parse_avl_file, prepare_model
 from openavl.geometry import Aircraft
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

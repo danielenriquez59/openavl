@@ -402,6 +402,12 @@ def _accumulate_all_vortex_forces(
             + 2.0 * gamma * f_d
         )
 
+    inv_sr = np.where(active, 1.0 / sr, 0.0)
+    if np.any(state.clmax_surf[: state.nsurf] > 0.0):
+        fgam, fgam_u, fgam_d = _clip_to_clmax(
+            state, vortex_to_strip, inv_sr, fgam, fgam_u, fgam_d, numax, ncontrol
+        )
+
     env = state.env[:, :nvor]
     dxv_w = state.dxv[:nvor] * state.wstrip[vortex_to_strip]
     # Delta Cp (loading across lifting surface) from vortex
@@ -412,7 +418,6 @@ def _accumulate_all_vortex_forces(
         term2 = np.einsum("kin,ki->in", env_d[:, :nvor, :ncontrol], fgam)
         state.dcp_d[:nvor, :ncontrol] = (term1.T + term2) / dxv_w[:, np.newaxis]
 
-    inv_sr = np.where(active, 1.0 / sr, 0.0)
     inv_cr = np.where(active, 1.0 / cr_v, 0.0)
     # vortex contribution to strip forces; forces normalized by strip area
     dcfx = fgam[0, :] * inv_sr
@@ -787,38 +792,75 @@ def _add_viscous_strip_drag(state, act, vis, loads, rc4, cr, ensy, ensz, ulift, 
     return cdv_strip
 
 
-def _clmax_derivative_correction(state, strip, ulift, ulift_u, numax, ncontrol):
-    """Prepare the CLmax clipping derivatives of one strip (OpenAVL extension).
+def _clip_to_clmax(state, v2s, inv_sr, fgam, fgam_u, fgam_d, numax, ncontrol):
+    """Scale vortex forces so no strip's local Cl exceeds its surface CLmax.
 
-    For s = Clmax / Cl, d(s F) = s (dF - F dCl / Cl).  Form the expression in
-    parentheses here, while the local lift direction and all uncapped strip
-    loads are still available. The per-surface pass in ``sfforc`` then
-    applies s to both loads and derivatives.
+    OpenAVL extension; AVL has no stall model. On a strip with Cl > CLmax every
+    vortex force is scaled by s = CLmax / Cl, and d(sF) = s (dF - F dCl / Cl).
+    Clipping here, before anything is summed, keeps Delta Cp, strip and surface
+    loads, hinge moments and all their derivatives consistent. The viscous
+    CD(CL) is then read at the clipped Cl.
+
+    shortcut: the circulation is not changed, so no load moves to the
+    neighbouring strips and the Trefftz plane (CDi, span efficiency) sees the
+    unclipped loading; trailing-leg forces (``ltrforce``) are not clipped.
+    Upgrade to a nonlinear alpha coupling with 2D polars for post-stall work.
     """
-    ulift_d = np.zeros((3, max(1, ncontrol)), dtype=np.float64)
-    local_cl = state.cl_lstrp[strip]
-    force = state.cfstrp[:, strip]
-    for suffix, count, lift_deriv in (
-        ("u", numax, ulift_u),
-        ("d", ncontrol, ulift_d[:, :ncontrol]),
-    ):
-        if not count:
-            continue
-        force_deriv = getattr(state, f"cfst_{suffix}")[:, strip, :count]
-        relative_cl_deriv = (
-            ulift @ force_deriv + force @ lift_deriv
-        ) / local_cl
-        for deriv_name, load_name in (
-            ("cnc", "cnc"), ("cdst", "cdstrp"),
-            ("cyst", "cystrp"), ("clst", "clstrp"),
-        ):
-            getattr(state, f"{deriv_name}_{suffix}")[strip, :count] -= (
-                getattr(state, load_name)[strip] * relative_cl_deriv
+    nstrip = state.nstrip
+    clmax = state.clmax_surf[state.lssurf[:nstrip]]
+    vx, vy, vz = (float(v) for v in state.vinf[:3])
+    spn, raw, ulmag, ulift = _strip_lift_direction(
+        vx, vy, vz, state.ensy[:nstrip], state.ensz[:nstrip]
+    )
+    ul = np.stack(ulift)
+    cf = _StripSummer(v2s, nstrip, 3)(fgam * inv_sr).T
+    cl = np.sum(ul * cf, axis=0)
+    over = (clmax > 0.0) & (cl > clmax)
+    if not over.any():
+        return fgam, fgam_u, fgam_d
+    _warn_clmax_clip(state, np.unique(state.lssurf[:nstrip][over]))
+    inv_cl = np.where(over, 1.0 / np.where(over, cl, 1.0), 0.0)
+    s_v = np.where(over, clmax * inv_cl, 1.0)[v2s]
+    ul_v = (ul[:, v2s] * inv_sr)[:, np.newaxis, :]
+
+    def relative_cl_deriv(f_s, lift_u=None):
+        """dCl/Cl at each vortex, as (count, nvor); zero on strips that do not clip."""
+        cl_s = _StripSummer(v2s, nstrip, f_s.shape[1])(np.sum(ul_v * f_s, axis=0))
+        if lift_u is not None:
+            cl_s += np.einsum("kjn,kj->jn", lift_u, cf)
+        return (cl_s * inv_cl[:, np.newaxis])[v2s].T
+
+    ulift_u = _strip_lift_direction_u(spn, raw, ulmag, ulift, numax)
+    fgam_u = s_v * (fgam_u - fgam[:, np.newaxis, :] * relative_cl_deriv(fgam_u, ulift_u))
+    if ncontrol:
+        # The lift direction does not depend on the controls.
+        fgam_d = s_v * (fgam_d - fgam[:, np.newaxis, :] * relative_cl_deriv(fgam_d))
+    return s_v * fgam, fgam_u, fgam_d
+
+
+def _warn_clmax_clip(state, surfaces):
+    """Print once per surface and run that its sectional lift is clipped."""
+    warned = getattr(state, "_clmax_clip_warned", None)
+    model = getattr(state, "model", None)
+    for isurf in surfaces.tolist():
+        if model is not None:
+            model_idx = solver_surface_index(model, isurf)
+            surf_name = (
+                model.surfaces[model_idx].name
+                if 0 <= model_idx < len(model.surfaces)
+                else solver_surface_name(model, isurf)
             )
-        force_deriv -= force[:, None] * relative_cl_deriv
-        getattr(state, f"cmst_{suffix}")[:, strip, :count] -= (
-            state.cmstrp[:, strip, None] * relative_cl_deriv
-        )
+            warn_key = model_idx if model_idx >= 0 else isurf
+        else:
+            surf_name = f"surface {isurf + 1}"
+            warn_key = isurf
+        if warned is None or warn_key not in warned:
+            print(
+                f"Local Cl > Clmax ({state.clmax_surf[isurf]:.3f}) on {surf_name}: "
+                "Clipping sectional lift force"
+            )
+            if warned is not None:
+                warned.add(warn_key)
 
 
 def _inverse_or_one(x: np.ndarray) -> np.ndarray:
@@ -890,12 +932,9 @@ def sfforc(state: Any) -> Any:
     Output includes DCP loadings, strip/surface coefficients, span loading
     (CNC), and hinge moments.
 
-    When ``state.clmax_surf[isurf] > 0``, strip forces on that surface are
-    scaled so local ``cl_lstrp`` does not exceed the limit (OpenAVL extension).
-    Strip sensitivities include the derivative of the clipping scale so
-    Newton trim Jacobians and stability derivatives stay consistent with
-    the clipped residuals. The clip is
-    non-smooth at the boundary (kink in the derivative).
+    When ``state.clmax_surf[isurf] > 0``, the vortex forces on that surface are
+    scaled so local ``cl_lstrp`` does not exceed the limit (OpenAVL extension,
+    see ``_clip_to_clmax``). The clip has a kink at the limit.
     """
     numax    = state.numax
     ncontrol = state.ncontrol
@@ -968,19 +1007,15 @@ def sfforc(state: Any) -> Any:
             vinf_f, xyzref_f, wrot_f, gam, gam_u, gam_d, numax, ncontrol,
         )
 
-    # ULIFT_U is only needed by the viscous and CLmax branches.
     vis = (
         np.flatnonzero(state.lviscstrp[act]) if state.lvisc
         else np.zeros(0, dtype=np.intp)
     )
-    clmax = state.clmax_surf[state.lssurf[act]]
-    ulift_u = None
-    if vis.size or np.any(clmax > 0.0):
-        ulift_u = _strip_lift_direction_u(spn, ulift_raw, ulmag, ulift, numax)
 
     # Drag terms due to viscous effects; CD from user-specified CD(CL) polar
     cdv_lstrp = np.zeros(act.size, dtype=np.float64)
     if vis.size:
+        ulift_u = _strip_lift_direction_u(spn, ulift_raw, ulmag, ulift, numax)
         cdv_lstrp[vis] = _add_viscous_strip_drag(
             state, act, vis, loads, rc4, cr, ensy, ensz, ulift, ulift_u,
             vinf_f, xyzref_f, wrot_f, numax, ncontrol,
@@ -1079,81 +1114,6 @@ def sfforc(state: Any) -> Any:
         + delz / dmag * (cmz + ((cfy * rle[0]) - (cfx * rle[1])) / cr),
         0.0,
     )
-
-    # CLmax clipping derivatives, strip by strip, over the strips that clip
-    for q in np.flatnonzero((clmax > 0.0) & (cl_lstrp > clmax)).tolist():
-        _clmax_derivative_correction(
-            state, int(act[q]),
-            np.array((ulift[0][q], ulift[1][q], ulift[2][q])),
-            np.ascontiguousarray(ulift_u[:, q, :]),
-            numax, ncontrol,
-        )
-
-    # --- Apply per-surface CLmax capping (OpenAVL extension) ---
-    for isurf in range(state.nsurf):
-        clmax = state.clmax_surf[isurf]
-        if clmax <= 0.0:
-            continue
-        j0 = int(state.jfrst[isurf])
-        nj = int(state.nj[isurf])
-        js = np.arange(j0, j0 + nj, dtype=np.intp)
-        exceeded = state.cl_lstrp[js] > clmax
-        if not np.any(exceeded):
-            continue
-        warned = getattr(state, "_clmax_clip_warned", None)
-        model = getattr(state, "model", None)
-        if model is not None:
-            model_idx = solver_surface_index(model, isurf)
-            surf_name = (
-                model.surfaces[model_idx].name
-                if 0 <= model_idx < len(model.surfaces)
-                else solver_surface_name(model, isurf)
-            )
-            warn_key = model_idx if model_idx >= 0 else isurf
-        else:
-            surf_name = f"surface {isurf + 1}"
-            warn_key = isurf
-        if warned is None or warn_key not in warned:
-            print(
-                f"Local Cl > Clmax ({clmax:.3f}) on {surf_name}: "
-                "Clipping sectional lift force"
-            )
-            if warned is not None:
-                warned.add(warn_key)
-        scale = np.ones(js.size, dtype=np.float64)
-        scale[exceeded] = clmax / state.cl_lstrp[js[exceeded]]
-        state.cfstrp[:, js] *= scale[np.newaxis, :]
-        state.clstrp[js] *= scale
-        state.cdstrp[js] *= scale
-        state.cystrp[js] *= scale
-        state.cmstrp[:, js] *= scale[np.newaxis, :]
-        state.cl_lstrp[js] = np.minimum(state.cl_lstrp[js], clmax)
-        state.cd_lstrp[js] *= scale
-        state.cn_lstrp[js] *= scale
-        state.ca_lstrp[js] *= scale
-        state.clt_lstrp[js] *= scale
-        state.cla_lstrp[js] *= scale
-        # Complete the product rule prepared in the strip loop above.
-        # Explicit alpha derivatives only rotate the output axes; the local
-        # lift direction depends on vinf, whose derivatives are in *_u.
-        state.cnc[js] *= scale
-        state.cdv_lstrp[js] *= scale
-        state.cdst_a[js] *= scale
-        state.cyst_a[js] *= scale
-        state.clst_a[js] *= scale
-        state.cnc_u[js, :numax] *= scale[:, np.newaxis]
-        state.cdst_u[js, :numax] *= scale[:, np.newaxis]
-        state.cyst_u[js, :numax] *= scale[:, np.newaxis]
-        state.clst_u[js, :numax] *= scale[:, np.newaxis]
-        state.cfst_u[:, js, :numax] *= scale[np.newaxis, :, np.newaxis]
-        state.cmst_u[:, js, :numax] *= scale[np.newaxis, :, np.newaxis]
-        if ncontrol:
-            state.cnc_d[js, :ncontrol] *= scale[:, np.newaxis]
-            state.cdst_d[js, :ncontrol] *= scale[:, np.newaxis]
-            state.cyst_d[js, :ncontrol] *= scale[:, np.newaxis]
-            state.clst_d[js, :ncontrol] *= scale[:, np.newaxis]
-            state.cfst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
-            state.cmst_d[:, js, :ncontrol] *= scale[np.newaxis, :, np.newaxis]
 
     # Surface forces and moments summed from strip forces.  Each sum below
     # reduces the same per-strip products as AVL, grouped so that one NumPy

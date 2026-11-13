@@ -1,12 +1,12 @@
-"""Tests for openavl.state."""
+"""Tests for openavl.core.state."""
 
 from __future__ import annotations
 
 import pytest
 
 from openavl import constants as C
-from openavl.parser import parse_avl, parse_avl_file, prepare_model
-from openavl.state import AVLState
+from openavl.fileio.parser import parse_avl, parse_avl_file, prepare_model
+from openavl.core.state import AVLState
 from tests.helpers import GEOMETRIES_DIR, load_json_fixture
 
 PLANE_AVL = GEOMETRIES_DIR / "plane.avl"

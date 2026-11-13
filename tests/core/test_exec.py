@@ -1,4 +1,4 @@
-"""Tests for openavl.exec."""
+"""Tests for openavl.core.exec."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from openavl import constants as C
-from openavl.exec import exec_solve
-from openavl.state import AVLState
+from openavl.core.exec import exec_solve
+from openavl.core.state import AVLState
 from tests.helpers import REF_DIR
 
 pytestmark = pytest.mark.core
@@ -127,3 +127,29 @@ def test_exec_solve_failed_trim_skips_parval_lsen_update():
     assert state.parval[C.IPALFA, ir] == pytest.approx(-99.0)
     assert state.parval[C.IPBETA, ir] == pytest.approx(-88.0)
     assert state.parval[C.IPCL, ir] == pytest.approx(-77.0)
+
+def test_direct_run_evaluates_forces_once(monkeypatch):
+    """A run whose constraints are all met takes a zero Newton step and stops.
+
+    Re-evaluating the unchanged state would give the same results, so the
+    forces are computed once; a trim still iterates.
+    """
+    import openavl.core.exec as exec_module
+    from openavl import AVLSolver
+    from tests.helpers import GEOMETRIES_DIR
+
+    calls = []
+    real_aero = exec_module.aero
+    monkeypatch.setattr(exec_module, "aero", lambda state: calls.append(1) or real_aero(state))
+
+    solver = AVLSolver(GEOMETRIES_DIR / "plane.avl")
+    solver.set_constraint("alpha", "alpha", 4.0)
+    solver.execute_run()
+    assert solver.state.lsol
+    assert len(calls) == 1
+
+    calls.clear()
+    solver.set_constraint("alpha", "cl", 0.5)
+    solver.execute_run()
+    assert solver.state.lsol and solver.state.cltot == pytest.approx(0.5, abs=1e-6)
+    assert len(calls) > 1

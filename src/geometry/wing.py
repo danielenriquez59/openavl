@@ -73,8 +73,8 @@ class Wing:
             Component index for multi-body configurations (AVL ``INDEX``).
         clmax:
             Maximum local lift coefficient for this surface. When ``> 0``,
-            strip forces whose local ``cl_lstrp`` exceeds this value are scaled
-            down before surface integration, preserving force direction.
+            the vortex forces of strips whose local ``cl_lstrp`` would exceed
+            this value are scaled down, preserving force direction.
             ``0.0`` disables capping (default).
         """
         self.name = name

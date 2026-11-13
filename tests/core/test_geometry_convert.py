@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openavl.geometry import Aircraft
-from openavl.parser import parse_avl_file, prepare_model
+from openavl.fileio.parser import parse_avl_file, prepare_model
 
 from tests.helpers import GEOMETRIES_DIR
 

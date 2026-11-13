@@ -1,11 +1,11 @@
-"""Tests for openavl.linalg."""
+"""Tests for openavl.math.linalg."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from openavl.linalg import baksub, ludcmp, lusolve
+from openavl.math.linalg import baksub, ludcmp, lusolve
 from tests.helpers import load_json_fixture, run_ref_binary
 
 pytestmark = pytest.mark.core

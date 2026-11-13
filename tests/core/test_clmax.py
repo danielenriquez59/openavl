@@ -6,7 +6,8 @@ import numpy as np
 import pytest
 
 from openavl import AVLSolver
-from openavl.geometry import Aircraft
+from openavl.aero.cdcl import cdcl
+from openavl.geometry import Aircraft, CdclPolar
 
 pytestmark = pytest.mark.core
 
@@ -33,6 +34,11 @@ def _run_at_alpha(aircraft: Aircraft, alpha_deg: float):
     return solver.state, solver.get_results()
 
 
+def _clipped(state, clmax: float) -> np.ndarray:
+    """Strips held at CLmax (equal to rounding: the clip scales vortex forces)."""
+    return np.isclose(state.cl_lstrp[: state.nstrip], clmax, rtol=0.0, atol=1e-12)
+
+
 def _wing_strip_cl(state, isurf: int = 0) -> np.ndarray:
     j0 = int(state.jfrst[isurf])
     nj = int(state.nj[isurf])
@@ -53,6 +59,39 @@ def test_clmax_caps_sectional_lift():
     assert np.any(strip_cl_uncapped > clmax + 1e-6), "test setup: alpha should exceed CLmax"
     assert np.all(strip_cl_capped <= clmax + 1e-10)
     assert capped["CL"] < uncapped["CL"]
+
+
+def test_clip_reaches_every_output():
+    """Delta Cp, hinge moment, local surface CL and viscous drag follow the clip.
+
+    The wing is flat, with no rates or deflection, and the clip leaves the
+    circulation alone: a clipped strip's loads are its free loads times
+    s = CLmax / Cl, and its viscous drag is the polar's CD at CLmax.
+    """
+    def run(clmax):
+        aircraft = _build_rect_wing(clmax=clmax)
+        wing = aircraft.wings[0]
+        wing.set_cdcl_polar(CdclPolar.from_list([-0.5, 0.02, 0.2, 0.008, 1.4, 0.03]))
+        for section in wing.sections:
+            section.add_control("flap", gain=1.0, xhinge=0.75)
+        solver = AVLSolver(aircraft, alpha=15.0)
+        solver.execute_run(max_iter=0)
+        return solver.state
+
+    free, capped = run(0.0), run(1.0)
+    nstrip, nvor = free.nstrip, free.nvor
+    over = free.cl_lstrp[:nstrip] > 1.0
+    assert over.any() and not over.all()
+    scale = capped.cl_lstrp[:nstrip] / free.cl_lstrp[:nstrip]
+    np.testing.assert_allclose(scale[~over], 1.0, rtol=1e-12)
+    strip = free.vortex_to_strip[:nvor]
+    np.testing.assert_allclose(capped.dcp[:nvor], scale[strip] * free.dcp[:nvor], rtol=1e-10)
+    assert capped.cl_lsrf[0] / capped.clsurf[0] == pytest.approx(
+        free.cl_lsrf[0] / free.clsurf[0], rel=1e-10
+    )
+    assert abs(capped.chinge[0]) < 0.99 * abs(free.chinge[0])
+    for j in np.flatnonzero(over):
+        assert capped.cdv_lstrp[j] == pytest.approx(cdcl(capped.clcd[j], 1.0)[0], rel=1e-10)
 
 
 def test_clmax_disabled_by_default():
@@ -101,11 +140,8 @@ def test_clmax_alpha_derivatives_match_finite_difference(clmax):
     nstrip = state.nstrip
     if clmax:
         # Keep finite differences on one smooth branch of the clipping law.
-        assert np.any(state.cl_lstrp[:nstrip] == clmax)
-        np.testing.assert_array_equal(
-            plus.cl_lstrp[:nstrip] == clmax,
-            minus.cl_lstrp[:nstrip] == clmax,
-        )
+        assert np.any(_clipped(state, clmax))
+        np.testing.assert_array_equal(_clipped(plus, clmax), _clipped(minus, clmax))
     for load, deriv in (("clstrp", "clst"), ("cdstrp", "cdst"), ("cystrp", "cyst")):
         analytic = (
             getattr(state, deriv + "_u")[:nstrip, :3] @ state.vinf_a
@@ -145,12 +181,11 @@ def test_clmax_control_derivatives_match_finite_difference(clmax):
     minus = run(-step)
     nstrip = state.nstrip
     if clmax:
-        assert np.any(state.cl_lstrp[:nstrip] == clmax)
-        np.testing.assert_array_equal(
-            plus.cl_lstrp[:nstrip] == clmax,
-            minus.cl_lstrp[:nstrip] == clmax,
-        )
-    for load, deriv in (("clstrp", "clst"), ("cdstrp", "cdst"), ("cnc", "cnc")):
+        assert np.any(_clipped(state, clmax))
+        np.testing.assert_array_equal(_clipped(plus, clmax), _clipped(minus, clmax))
+    for load, deriv in (
+        ("clstrp", "clst"), ("cdstrp", "cdst"), ("cnc", "cnc"), ("chinge", "chinge"),
+    ):
         finite_difference = (
             getattr(plus, load)[:nstrip] - getattr(minus, load)[:nstrip]
         ) / (2.0 * step)

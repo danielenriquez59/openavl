@@ -7,9 +7,9 @@ import pytest
 
 from openavl.geom import build_geometry
 from openavl.geom.display import control_hinge_polylines
-from openavl.parser import parse_avl, prepare_model
+from openavl.fileio.parser import parse_avl, prepare_model
 from openavl.plotting.aircraft3d import _mirror_point
-from openavl.state import AVLState
+from openavl.core.state import AVLState
 
 pytestmark = pytest.mark.core
 

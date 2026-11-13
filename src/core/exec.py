@@ -339,6 +339,13 @@ def exec_solve(
                 )
                 return state
 
+            if not np.any(rhs):
+                # A zero step (every constraint met, e.g. all set directly)
+                # leaves the state as it is: re-evaluating it gives the same
+                # results, so stop here. AVL re-evaluates once more.
+                state.lsol = True
+                break
+
             state.alfa = (state.alfa + dal)
             state.beta = (state.beta + dbe)
             state.wrot[0] = (state.wrot[0] + dwx)

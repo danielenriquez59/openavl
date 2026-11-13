@@ -1,4 +1,4 @@
-"""Tests for openavl.util."""
+"""Tests for openavl.math.util."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openavl.util import m3inv, rateki3, rotens3
+from openavl.math.util import m3inv, rateki3, rotens3
 from tests.helpers import REF_DIR
 
 pytestmark = pytest.mark.core
@@ -54,7 +54,7 @@ def assert_close_array(actual, expected, tol: float = 1e-5) -> None:
 def test_cross3_dot3():
     u = np.array([1.0, 0.0, 0.0], dtype=np.float64)
     v = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-    from openavl.util import cross3, dot3
+    from openavl.math.util import cross3, dot3
 
     w = cross3(u, v)
     assert_close_array(w, [0.0, 0.0, 1.0])

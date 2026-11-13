@@ -1,11 +1,11 @@
-"""Tests for openavl.parser."""
+"""Tests for openavl.fileio.parser."""
 
 import warnings
 from pathlib import Path
 
 import pytest
 
-from openavl.parser import parse_avl, parse_avl_file, prepare_model
+from openavl.fileio.parser import parse_avl, parse_avl_file, prepare_model
 
 from tests.helpers import GEOMETRIES_DIR
 

@@ -1,4 +1,4 @@
-"""Tests for openavl.cdcl."""
+"""Tests for openavl.aero.cdcl."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from openavl.cdcl import cdcl
+from openavl.aero.cdcl import cdcl
 from tests.helpers import REF_DIR
 
 pytestmark = pytest.mark.core

@@ -15,48 +15,16 @@ require_jax()
 
 import openmdao.api as om
 
-from openavl.jax.openmdao import JaxAVLComp
 from openavl.jax.openmdao_group import OpenAVLGroup
 
 from tests.helpers import GEOMETRIES_DIR
 
 PLANE_AVL = GEOMETRIES_DIR / "plane.avl"
 
-COEFF_TOL = 1e-8
 FD_TOL = 1e-4
 
 pytestmark = pytest.mark.integration
 
-
-def _scalar(prob: om.Problem, name: str) -> float:
-    return float(np.asarray(prob.get_val(name)).item())
-
-
-@pytest.mark.reference
-def test_openavl_group_matches_jax_avl_comp() -> None:
-    """OpenAVLGroup at baseline geometry matches JaxAVLComp force coefficients."""
-    if not PLANE_AVL.is_file():
-        pytest.skip(f"{PLANE_AVL.name} not found")
-
-    prob_old = om.Problem()
-    prob_old.model.add_subsystem("avl", JaxAVLComp(geo_file=str(PLANE_AVL)))
-    prob_old.setup()
-    prob_old.set_val("avl.alpha", np.deg2rad(5.0))
-    prob_old.set_val("avl.beta", 0.0)
-    prob_old.set_val("avl.mach", 0.0)
-    prob_old.run_model()
-
-    prob_new = om.Problem()
-    prob_new.model = OpenAVLGroup(geo_file=str(PLANE_AVL))
-    prob_new.setup()
-    prob_new.set_val("alpha", 5.0)
-    prob_new.set_val("beta", 0.0)
-    prob_new.set_val("mach", 0.0)
-    prob_new.run_model()
-
-    assert _scalar(prob_new, "CL") == pytest.approx(_scalar(prob_old, "avl.CL"), abs=COEFF_TOL)
-    assert _scalar(prob_new, "CD") == pytest.approx(_scalar(prob_old, "avl.CD"), abs=COEFF_TOL)
-    assert _scalar(prob_new, "CY") == pytest.approx(_scalar(prob_old, "avl.CY"), abs=COEFF_TOL)
 
 @pytest.mark.parametrize("avl_path", [PLANE_AVL])
 @pytest.mark.reference

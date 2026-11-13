@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from openavl.solver import AVLSolver
+from openavl.core.solver import AVLSolver
 
 from tests.helpers import GEOMETRIES_DIR
 

@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 
 from openavl.geom import build_geometry
-from openavl.parser import parse_avl_file, prepare_model
-from openavl.state import AVLState
+from openavl.fileio.parser import parse_avl_file, prepare_model
+from openavl.core.state import AVLState
 
 pytestmark = pytest.mark.core
 
