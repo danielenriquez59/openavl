@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "openavl"
-version = "1.0.0"
+version = "1.1.0"
 description = "Python port of the AVL vortex lattice code, matching Fortran AVL 3.52 except for documented fixes"
 readme = "README.md"
 license = "GPL-2.0-or-later"
