@@ -123,7 +123,7 @@ def _many_controls_avl(n: int) -> str:
 def test_trim_with_more_than_30_controls(tmp_path):
     path = tmp_path / "many.avl"
     path.write_text(_many_controls_avl(31))
-    solver = AVLSolver(path)
+    solver = AVLSolver(path, cl=0.6)
     assert solver.state.ncontrol == 31
     solver.execute_run()
     assert solver.get_results()["CL"] == pytest.approx(0.6, abs=1e-6)

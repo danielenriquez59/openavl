@@ -461,6 +461,7 @@ class AVLState:
         state.alfa = float(run_defaults["alpha"]) * state.dtr
         state.beta = float(run_defaults["beta"]) * state.dtr
 
+        state.conval[C.ICALFA, ir] = float(run_defaults["alpha"])
         state.conval[C.ICCL, ir]   = float(run_defaults["cl"])
         state.conval[C.ICMOMX, ir] = float(run_defaults["cmx"])
         state.conval[C.ICMOMY, ir] = float(run_defaults["cmy"])
@@ -470,7 +471,8 @@ class AVLState:
         state.conval[C.ICROTY, ir] = 0.0
         state.conval[C.ICROTZ, ir] = 0.0
 
-        state.icon[C.IVALFA, ir] = C.ICCL
+        # Fortran RUNINI holds alpha at its given value; an explicit cl= asks for a CL trim instead.
+        state.icon[C.IVALFA, ir] = C.ICCL if "cl" in options else C.ICALFA
         state.icon[C.IVBETA, ir] = C.ICBETA
         state.icon[C.IVROTX, ir] = C.ICROTX
         state.icon[C.IVROTY, ir] = C.ICROTY

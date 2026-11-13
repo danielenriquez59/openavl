@@ -12,6 +12,6 @@
   "bref": 15.0,
   "default_alpha_deg": 2.0,
   "default_cl": 0.6,
-  "icon_alpha": 5,
+  "icon_alpha": 0,
   "conval_cl": 0.6
 }
