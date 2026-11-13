@@ -85,3 +85,35 @@ def test_from_model_rejects_body_nodes_above_nlmax():
     body.body_thread_x, body.body_thread_y, body.body_thread_t = [0.0, 1.0], [0.0, 0.0], [0.1, 0.1]
     with pytest.raises(ValueError, match=rf"600 body nodes.*limit of {C.NLMAX}.*Nbody"):
         AVLState.from_model(model)
+
+
+def test_alpha_is_held_unless_a_cl_target_is_given():
+    """Fortran RUNINI holds alpha at its value; an explicit cl= trims alpha to CL instead."""
+    from openavl import AVLSolver
+
+    held = AVLSolver(PLANE_AVL, alpha=3.0)
+    held.execute_run()
+    assert held.get_results()["alpha_deg"] == pytest.approx(3.0, abs=1e-12)
+
+    trimmed = AVLSolver(PLANE_AVL, alpha=3.0, cl=0.5)
+    trimmed.execute_run(max_iter=20)
+    assert trimmed.get_results()["CL"] == pytest.approx(0.5, abs=1e-6)
+
+
+def test_set_variable_survives_execute_run():
+    """The user-manual flow: set_variable(...) then execute_run() keeps every value set."""
+    from openavl import AVLSolver
+
+    solver = AVLSolver(PLANE_AVL)
+    control = solver.state.control_names[0]
+    solver.set_variable("alpha", 3.0)
+    solver.set_variable("beta", 4.0)
+    solver.set_variable("pb/2V", 0.05)
+    solver.set_variable(control, 5.0)
+    solver.execute_run()
+    results = solver.get_results()
+
+    assert results["alpha_deg"] == pytest.approx(3.0, abs=1e-12)
+    assert results["beta_deg"] == pytest.approx(4.0, abs=1e-12)
+    assert (solver._rate_matrix() @ solver.state.wrot)[0] == pytest.approx(0.05, abs=1e-12)
+    assert results["control_deflections"][control] == pytest.approx(5.0, abs=1e-12)

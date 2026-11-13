@@ -169,6 +169,10 @@ class AVLSolver:
             sets the directory used to resolve airfoil and body files
             (default: the geometry file's directory).
 
+            As in Fortran AVL, alpha is held at ``alpha`` (default 2 deg).
+            Passing ``cl`` instead trims alpha to that CL, with ``alpha``
+            as the starting guess.
+
         Raises
         ------
         FileNotFoundError
@@ -273,6 +277,9 @@ class AVLSolver:
         ``qc/2V`` and ``rb/2V`` use the convention of the rate constraints of
         :meth:`set_constraint`, so a value set here gives the same flow as a
         constraint of that value; changing ``alpha`` keeps them fixed.
+
+        A variable held at its own value (the default, as with AVL's
+        ``A A 3``) keeps the new value in the next :meth:`execute_run`.
         """
         key = name.strip()
         lower = key.lower()
@@ -280,21 +287,28 @@ class AVLSolver:
             idx = self._VARIABLE_MAP[lower]
             if idx == C.IVBETA:
                 self.state.beta = float(value) * self.state.dtr
-                return
-            rates = self._rate_matrix() @ self.state.wrot
-            if idx == C.IVALFA:
-                self.state.alfa = float(value) * self.state.dtr
             else:
-                rates[idx - C.IVROTX] = float(value)
-            self.state.wrot[:] = np.linalg.solve(self._rate_matrix(), rates)
+                rates = self._rate_matrix() @ self.state.wrot
+                if idx == C.IVALFA:
+                    self.state.alfa = float(value) * self.state.dtr
+                else:
+                    rates[idx - C.IVROTX] = float(value)
+                self.state.wrot[:] = np.linalg.solve(self._rate_matrix(), rates)
+            self._update_held_value(idx, idx, value)  # IV and IC indices coincide for these five
             return
 
         ctrl_idx = self._resolve_control_index(key)
         if ctrl_idx is not None:
             self.state.delcon[ctrl_idx] = float(value)
+            self._update_held_value(C.IVTOT + ctrl_idx, C.ICTOT + ctrl_idx, value)
             return
 
         raise KeyError(f"Unknown variable: {name}")
+
+    def _update_held_value(self, iv: int, ic: int, value: float) -> None:
+        """Keep a variable's own constraint in step, or execute_run would reset it from conval."""
+        if int(self.state.icon[iv, 0]) == ic:
+            self.state.conval[ic, 0] = float(value)
 
     def set_parameter(self, name: str, value: float) -> None:
         """Set a run-case parameter for the current analysis.
